@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { userMessage } from '../api/problem';
 import { useAnalytics } from '../analytics/AnalyticsProvider';
 import { useConsent } from '../consent/ConsentProvider';
-import { formatDate, formatMoney } from '../lib/money';
+import { formatDate, formatMoney, Money } from '../lib/money';
 import {
   buildShareLinks,
   countInProgress,
@@ -32,13 +32,17 @@ export function ReferralPage({ service, shareBaseUrl }: ReferralPageProps) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([service.listRewards(), service.listReferrals(), service.getToken()])
-      .then(([rewards, referrals, token]) => {
+    const load = async () => {
+      try {
+        const [rewards, referrals, token] = await Promise.all([service.listRewards(), service.listReferrals(), service.getToken()]);
         if (cancelled) return;
         setHistory({ state: 'ready', data: { rewards: rewards.items, referrals: referrals.items } });
         setCode((current) => current ?? token.referralCode);
-      })
-      .catch((error) => !cancelled && setHistory({ state: 'error', message: userMessage(error) }));
+      } catch (error) {
+        if (!cancelled) setHistory({ state: 'error', message: userMessage(error) });
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -103,6 +107,12 @@ export function ReferralPage({ service, shareBaseUrl }: ReferralPageProps) {
   );
 }
 
+/** One amount per currency joined with "+", or a zero GBP amount when nothing is available. */
+function formatAvailable(available: Money[]): string {
+  if (available.length === 0) return formatMoney({ amountMinor: 0, currency: 'GBP' });
+  return available.map((m) => formatMoney(m)).join(' + ');
+}
+
 function ReferralHistory({ rewards, referrals }: { rewards: Reward[]; referrals: Referral[] }) {
   const summary = summariseRewards(rewards);
   return (
@@ -110,7 +120,7 @@ function ReferralHistory({ rewards, referrals }: { rewards: Reward[]; referrals:
       <section aria-labelledby="rewards-title">
         <h2 id="rewards-title">Your rewards</h2>
         <p>
-          Available: {summary.available.length ? summary.available.map((m) => formatMoney(m)).join(' + ') : formatMoney({ amountMinor: 0, currency: 'GBP' })}
+          Available: {formatAvailable(summary.available)}
           {summary.pendingCount > 0 && ` - ${summary.pendingCount} pending`}
         </p>
         {rewards.length === 0 ? (

@@ -4,7 +4,8 @@ import { TicketPriority } from '../sla/sla.policy';
 export const TICKET_CATEGORIES = ['FAULT', 'SERVICE_REQUEST', 'BILLING', 'GENERAL'] as const;
 export type TicketCategory = (typeof TICKET_CATEGORIES)[number];
 
-export const TICKET_PRIORITIES = ['P1', 'P2', 'P3', 'P4'] as const satisfies readonly TicketPriority[];
+/** Same values as TicketPriority in sla.policy. */
+export const TICKET_PRIORITIES = ['P1', 'P2', 'P3', 'P4'] as const;
 
 export const TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'PENDING_CUSTOMER', 'RESOLVED', 'CLOSED'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];

@@ -32,8 +32,11 @@ const ACCOUNT_KEY = 'uce.activeAccount';
 /** Refresh this long before expiry to absorb clock skew and in-flight latency. */
 const REFRESH_SKEW_MS = 60_000;
 
-const isSession = (v: unknown): v is Session =>
-  !!v && typeof v === 'object' && typeof (v as Session).tokens?.accessToken === 'string' && typeof (v as Session).user?.userId === 'string';
+function isSession(v: unknown): v is Session {
+  if (!v || typeof v !== 'object') return false;
+  const candidate = v as Session;
+  return typeof candidate.tokens?.accessToken === 'string' && typeof candidate.user?.userId === 'string';
+}
 const isTransaction = (v: unknown): v is AuthTransaction => !!v && typeof (v as AuthTransaction).state === 'string';
 const isString = (v: unknown): v is string => typeof v === 'string';
 
@@ -88,20 +91,21 @@ export function AuthProvider({ client, children, navigate = (url) => window.loca
       adopt(undefined);
       return undefined;
     }
-    refreshing.current ??= client
-      .refresh(current.tokens.refreshToken)
-      .then((tokens) => {
-        const next = sessionFromTokens(tokens);
+    const refreshToken = current.tokens.refreshToken;
+    const runRefresh = async (): Promise<string | undefined> => {
+      try {
+        const next = sessionFromTokens(await client.refresh(refreshToken));
         adopt(next);
         return next.tokens.accessToken;
-      })
-      .catch(() => {
+      } catch {
         adopt(undefined);
         return undefined;
-      })
-      .finally(() => {
-        refreshing.current = null;
-      });
+      }
+    };
+    // Single-flight: concurrent callers share one refresh grant.
+    refreshing.current ??= runRefresh().finally(() => {
+      refreshing.current = null;
+    });
     return refreshing.current;
   }, [adopt, client, now]);
 

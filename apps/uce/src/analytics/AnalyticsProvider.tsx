@@ -55,12 +55,13 @@ export function AnalyticsProvider({ config, adapters, children }: AnalyticsProvi
       return undefined;
     }
     hadUser.current = true;
-    void Promise.all([
-      hashIdentifier(user.userId, config.idSalt),
-      activeAccountId ? hashIdentifier(activeAccountId, config.idSalt) : Promise.resolve(undefined),
-    ]).then(([userKey, accountKey]) => {
+    // Only salted hashes of the user and account ids ever reach vendors.
+    const identifyUser = async () => {
+      const accountHash = activeAccountId ? hashIdentifier(activeAccountId, config.idSalt) : Promise.resolve(undefined);
+      const [userKey, accountKey] = await Promise.all([hashIdentifier(user.userId, config.idSalt), accountHash]);
       if (!cancelled) service.identify({ userKey, accountKey, segment: segmentOf(user.roles), roles: user.roles });
-    });
+    };
+    void identifyUser();
     return () => {
       cancelled = true;
     };

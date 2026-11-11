@@ -107,10 +107,11 @@ final class HuntGroupService
             return 0;
         }
 
-        return match ($strategy) {
-            HuntGroupStrategy::Simultaneous => $groupRingSeconds,
-            default => array_sum($memberRingSeconds),
-        };
+        if ($strategy === HuntGroupStrategy::Simultaneous) {
+            return $groupRingSeconds;
+        }
+
+        return array_sum($memberRingSeconds);
     }
 
     /**
@@ -118,8 +119,10 @@ final class HuntGroupService
      */
     private function apply(string $accountId, HuntGroup $group, array $data): HuntGroup
     {
-        $strategy = HuntGroupStrategy::tryFrom((string) $data['strategy'])
-            ?? throw ValidationFailedException::forField('strategy', 'Unknown hunt group strategy.');
+        $strategy = HuntGroupStrategy::tryFrom((string) $data['strategy']);
+        if ($strategy === null) {
+            throw ValidationFailedException::forField('strategy', 'Unknown hunt group strategy.');
+        }
 
         $ringSeconds = (int) $data['ring_seconds'];
         $this->assertRingSeconds('ring_seconds', $ringSeconds);
@@ -127,15 +130,8 @@ final class HuntGroupService
         $members = $this->resolveMembers($accountId, $data['members'] ?? [], $strategy, $ringSeconds);
         [$noAnswerType, $noAnswerDestination] = $this->resolveNoAnswer($accountId, $data, $group->pilot_extension);
 
-        $pilotNumberRef = null;
         $pilotNumberId = $data['pilot_number_id'] ?? null;
-        if ($pilotNumberId !== null) {
-            $number = $this->numbers->getForAccount($accountId, $pilotNumberId);
-            if ($number->isAssigned()) {
-                throw new BusinessRuleException('The pilot number is already routed to an extension.', 'VOICE_PILOT_NUMBER_ASSIGNED');
-            }
-            $pilotNumberRef = $number->external_ref;
-        }
+        $pilotNumberRef = $this->resolvePilotNumberRef($accountId, $pilotNumberId);
 
         $group->fill([
             'name' => trim((string) $data['name']),
@@ -147,22 +143,36 @@ final class HuntGroupService
             'no_answer_destination' => $noAnswerDestination,
         ]);
 
-        $saved = $this->groups->saveWithMembers($group, array_map(
-            static fn (array $m) => ['extension_id' => $m['extension']->id, 'ring_seconds' => $m['ring_seconds']],
-            $members,
-        ));
-
-        $this->voice->upsertHuntGroup($saved, array_map(
-            static fn (array $m) => [
+        $memberRows = [];
+        $platformMembers = [];
+        foreach ($members as $m) {
+            $memberRows[] = ['extension_id' => $m['extension']->id, 'ring_seconds' => $m['ring_seconds']];
+            $platformMembers[] = [
                 'extensionRef' => (string) $m['extension']->external_ref,
                 'ringSeconds' => $m['ring_seconds'] ?? $ringSeconds,
-            ],
-            $members,
-        ), $pilotNumberRef);
+            ];
+        }
+
+        $saved = $this->groups->saveWithMembers($group, $memberRows);
+        $this->voice->upsertHuntGroup($saved, $platformMembers, $pilotNumberRef);
 
         $saved->status = ProvisioningStatus::Active;
 
         return $this->groups->save($saved);
+    }
+
+    private function resolvePilotNumberRef(string $accountId, mixed $pilotNumberId): mixed
+    {
+        if ($pilotNumberId === null) {
+            return null;
+        }
+
+        $number = $this->numbers->getForAccount($accountId, $pilotNumberId);
+        if ($number->isAssigned()) {
+            throw new BusinessRuleException('The pilot number is already routed to an extension.', 'VOICE_PILOT_NUMBER_ASSIGNED');
+        }
+
+        return $number->external_ref;
     }
 
     /**
@@ -183,6 +193,7 @@ final class HuntGroupService
 
         $resolved = [];
         $seen = [];
+        $ringTimes = [];
         foreach ($input as $i => $member) {
             $id = (string) $member['extension_id'];
             if (isset($seen[$id])) {
@@ -195,25 +206,12 @@ final class HuntGroupService
                 throw ValidationFailedException::forField("members.$i.extension_id", 'Only active extensions can join a hunt group.');
             }
 
-            $ring = isset($member['ring_seconds']) ? (int) $member['ring_seconds'] : null;
-            if ($ring !== null) {
-                if ($strategy === HuntGroupStrategy::Simultaneous) {
-                    throw ValidationFailedException::forField(
-                        "members.$i.ring_seconds",
-                        'Per-member ring time does not apply to simultaneous ringing.',
-                    );
-                }
-                $this->assertRingSeconds("members.$i.ring_seconds", $ring);
-            }
-
+            $ring = $this->memberRingSeconds($member, $i, $strategy);
             $resolved[] = ['extension' => $extension, 'ring_seconds' => $ring];
+            $ringTimes[] = $ring ?? $groupRingSeconds;
         }
 
-        $wait = self::maxWaitSeconds(
-            $strategy,
-            $groupRingSeconds,
-            array_map(static fn (array $m) => $m['ring_seconds'] ?? $groupRingSeconds, $resolved),
-        );
+        $wait = self::maxWaitSeconds($strategy, $groupRingSeconds, $ringTimes);
         if ($wait > 600) {
             throw new BusinessRuleException(
                 sprintf('Callers could wait %d seconds before overflow; reduce ring times to keep it under 10 minutes.', $wait),
@@ -222,6 +220,27 @@ final class HuntGroupService
         }
 
         return $resolved;
+    }
+
+    /**
+     * @param array{extension_id: string, ring_seconds?: ?int} $member
+     */
+    private function memberRingSeconds(array $member, int|string $i, HuntGroupStrategy $strategy): ?int
+    {
+        if (!isset($member['ring_seconds'])) {
+            return null;
+        }
+
+        $ring = (int) $member['ring_seconds'];
+        if ($strategy === HuntGroupStrategy::Simultaneous) {
+            throw ValidationFailedException::forField(
+                "members.$i.ring_seconds",
+                'Per-member ring time does not apply to simultaneous ringing.',
+            );
+        }
+        $this->assertRingSeconds("members.$i.ring_seconds", $ring);
+
+        return $ring;
     }
 
     /**

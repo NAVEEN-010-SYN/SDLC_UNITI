@@ -2,9 +2,11 @@ package com.uniti.qa.pages.uconnect;
 
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 
 /**
  * Service detail and plan-change flow. Upgrades create an Order (DRAFT -> SUBMITTED) whose
@@ -52,7 +54,11 @@ public final class ServicesPage extends BasePage {
 
     public List<String> availablePlanSkus() {
         waits.click(CHANGE_PLAN);
-        return waits.allVisible(PLAN_OPTIONS).stream().map(o -> o.getAttribute("value")).toList();
+        List<String> skus = new ArrayList<>();
+        for (WebElement option : waits.allVisible(PLAN_OPTIONS)) {
+            skus.add(option.getAttribute("value"));
+        }
+        return skus;
     }
 
     public ServicesPage choosePlan(String sku, String effectiveDateIso) {

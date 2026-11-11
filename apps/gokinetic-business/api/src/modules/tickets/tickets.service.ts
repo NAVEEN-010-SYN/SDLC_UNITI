@@ -12,6 +12,7 @@ import { SlaTier } from '../inventory/inventory.types';
 import { MAX_ESCALATION_LEVEL, TicketPriority } from '../sla/sla.policy';
 import { automaticEscalationLevel, computeDueDates, effectivePausedMs, resolutionConsumedBps, slaView } from './ticket-sla';
 import { TicketActor, assertTicketTransition, nextStatusesFor } from './ticket-state-machine';
+import { actorFor, assertTicketShape, statusTransitionPatch } from './ticket-rules';
 import { TicketFilter, TicketPatch, TicketsRepository } from './tickets.repository';
 import {
   CUSTOMER_ESCALATION_MIN_CONSUMED_BPS,
@@ -25,6 +26,9 @@ import {
   TicketView
 } from './tickets.types';
 
+// Re-exported so existing imports from this module keep working.
+export { assertTicketShape, statusTransitionPatch };
+
 export interface TicketNotifier {
   ticketUpdated(ticket: Ticket, event: TicketEvent): Promise<void>;
 }
@@ -33,58 +37,11 @@ export interface TicketDetailWithActions extends TicketDetail {
   allowedStatuses: TicketStatus[];
 }
 
-function actorFor(ctx: AuthContext): TicketActor {
-  return can(ctx, 'tickets:internal') ? 'agent' : 'customer';
-}
-
-/**
- * Field changes implied by a status transition: pausing/resuming the resolution clock,
- * stamping resolution/closure, and treating any agent action as the first response.
- */
-export function statusTransitionPatch(ticket: Ticket, to: TicketStatus, actor: TicketActor, now: Date): TicketPatch {
-  const patch: TicketPatch = { status: to };
-  const nowIso = now.toISOString();
-
-  if (actor === 'agent' && !ticket.firstResponseAt) patch.firstResponseAt = nowIso;
-
-  let pausedMs = ticket.pausedMs;
-  if (ticket.status === 'PENDING_CUSTOMER') {
-    pausedMs = effectivePausedMs(ticket, now);
-    patch.pendingSince = null;
-  }
-  if (ticket.status === 'RESOLVED' && to === 'IN_PROGRESS' && ticket.resolvedAt) {
-    // Time spent resolved does not count against the reopened ticket.
-    pausedMs += Math.max(0, now.getTime() - new Date(ticket.resolvedAt).getTime());
-    patch.resolvedAt = null;
-  }
-  if (to === 'PENDING_CUSTOMER') patch.pendingSince = nowIso;
-  if (to === 'RESOLVED') patch.resolvedAt = nowIso;
-  if (to === 'CLOSED') patch.closedAt = nowIso;
-
-  if (pausedMs !== ticket.pausedMs) {
-    patch.pausedMs = pausedMs;
-    patch.resolutionDueAt = computeDueDates(ticket.slaTier, ticket.priority, new Date(ticket.openedAt), pausedMs)
-      .resolutionDueAt.toISOString();
-  }
-  return patch;
-}
-
-/** Validates the category/priority/service combination for a new ticket. */
-export function assertTicketShape(input: NewTicketInput, serviceStatus: string | null): void {
-  if (input.category === 'FAULT' && !input.serviceId) {
-    throw new BusinessRuleError('fault-needs-service', 'A fault must be raised against a specific service');
-  }
-  if (input.priority === 'P1') {
-    if (input.category !== 'FAULT') {
-      throw new BusinessRuleError('p1-fault-only', 'Priority P1 is reserved for faults causing a total loss of service');
-    }
-    if (serviceStatus !== 'ACTIVE') {
-      throw new BusinessRuleError('p1-active-service', 'Priority P1 can only be raised against an active service');
-    }
-  }
-  if (input.category === 'BILLING' && (input.priority === 'P1' || input.priority === 'P2')) {
-    throw new BusinessRuleError('billing-priority', 'Billing queries are handled at priority P3 or P4');
-  }
+/** Where a new ticket points and which SLA tier applies. */
+interface TicketTarget {
+  siteId: string | null;
+  tier: SlaTier;
+  serviceStatus: string | null;
 }
 
 export class TicketsService {
@@ -118,42 +75,12 @@ export class TicketsService {
 
   async create(ctx: AuthContext, input: NewTicketInput): Promise<TicketView> {
     const now = this.clock.now();
-    let siteId = input.siteId ?? null;
-    let tier: SlaTier;
-    let serviceStatus: string | null = null;
+    const target = await this.resolveTarget(ctx, input);
+    assertTicketShape(input, target.serviceStatus);
 
-    if (input.serviceId) {
-      const service = await this.inventory.findService(ctx.accountId, input.serviceId);
-      if (!service || !canAccessSite(ctx, service.siteId)) throw new NotFoundError('Service', input.serviceId);
-      if (siteId && siteId !== service.siteId) {
-        throw new BusinessRuleError('service-site-mismatch', 'The service does not belong to the selected site');
-      }
-      if (service.status === 'CEASED') {
-        throw new BusinessRuleError('service-ceased', 'Tickets cannot be raised against a ceased service');
-      }
-      siteId = service.siteId;
-      tier = service.slaTier;
-      serviceStatus = service.status;
-    } else {
-      if (siteId) {
-        const site = await this.inventory.findSite(ctx.accountId, siteId);
-        if (!site || !canAccessSite(ctx, siteId)) throw new NotFoundError('Site', siteId);
-      }
-      tier = (await this.accounts.get(ctx.accountId)).slaTier;
-    }
-    assertTicketShape(input, serviceStatus);
-
-    const due = computeDueDates(tier, input.priority, now);
+    const due = computeDueDates(target.tier, input.priority, now);
     return this.db.tx(async (tx) => {
-      if (input.category === 'FAULT' && input.serviceId) {
-        const duplicate = await this.repo.findOpenFaultForService(ctx.accountId, input.serviceId, tx);
-        if (duplicate) {
-          throw new ConflictError(`Fault ${duplicate.reference} is already open for this service`, {
-            ticketId: duplicate.id,
-            reference: duplicate.reference
-          });
-        }
-      }
+      await this.assertNoOpenFault(ctx, input, tx);
       const ticket = await this.repo.insert(
         {
           accountId: ctx.accountId,
@@ -161,29 +88,20 @@ export class TicketsService {
           category: input.category,
           priority: input.priority,
           serviceId: input.serviceId ?? null,
-          siteId,
+          siteId: target.siteId,
           subject: input.subject,
           description: input.description,
           raisedBy: ctx.userId,
           contactPhone: input.contactPhone ?? null,
-          slaTier: tier,
+          slaTier: target.tier,
           openedAt: now.toISOString(),
           responseDueAt: due.responseDueAt.toISOString(),
           resolutionDueAt: due.resolutionDueAt.toISOString()
         },
         tx
       );
-      await this.audit.record(
-        {
-          accountId: ctx.accountId,
-          actorId: ctx.userId,
-          action: 'ticket.created',
-          entity: 'ticket',
-          entityId: ticket.id,
-          details: { reference: ticket.reference, category: ticket.category, priority: ticket.priority }
-        },
-        tx
-      );
+      const details = { reference: ticket.reference, category: ticket.category, priority: ticket.priority };
+      await this.recordAudit(ctx, 'ticket.created', ticket.id, details, tx);
       return { ...ticket, sla: slaView(ticket, now) };
     });
   }
@@ -193,7 +111,7 @@ export class TicketsService {
     if (input.internal && actor !== 'agent') throw new ForbiddenError('Only support agents can add internal notes');
     const now = this.clock.now();
 
-    const { ticket, event } = await this.db.tx(async (tx) => {
+    const change = await this.db.tx(async (tx) => {
       const current = await this.requireTicket(ctx, ticketId, tx);
       this.assertVersion(current, input.version);
       if (current.status === 'CLOSED') {
@@ -203,40 +121,27 @@ export class TicketsService {
         { ticketId: current.id, kind: 'COMMENT', authorId: ctx.userId, body: input.body, internal: input.internal },
         tx
       );
-      let patch: TicketPatch = {};
-      if (actor === 'customer' && current.status === 'PENDING_CUSTOMER') {
-        // A customer reply hands the ticket back to the agent and restarts the clock.
-        patch = statusTransitionPatch(current, 'IN_PROGRESS', actor, now);
-        await this.repo.addEvent(
-          { ticketId: current.id, kind: 'STATUS_CHANGE', authorId: ctx.userId, fromValue: current.status, toValue: 'IN_PROGRESS' },
-          tx
-        );
-      } else if (actor === 'agent' && !input.internal && !current.firstResponseAt) {
-        patch = { firstResponseAt: now.toISOString() };
-      }
+      const patch = await this.commentPatch(ctx, current, actor, input.internal, now, tx);
       const ticket = await this.repo.update(current.id, current.version, patch, tx);
       return { ticket, event };
     });
 
-    if (!event.internal) await this.notifySafely(ticket, event);
-    return { ...ticket, sla: slaView(ticket, now) };
+    if (!change.event.internal) await this.notifySafely(change.ticket, change.event);
+    return { ...change.ticket, sla: slaView(change.ticket, now) };
   }
 
   async changeStatus(ctx: AuthContext, ticketId: string, input: { status: TicketStatus; reason?: string; version: number }): Promise<TicketView> {
     const actor = actorFor(ctx);
     const now = this.clock.now();
 
-    const { ticket, event } = await this.db.tx(async (tx) => {
+    const change = await this.db.tx(async (tx) => {
       const current = await this.requireTicket(ctx, ticketId, tx);
       this.assertVersion(current, input.version);
       assertTicketTransition(current.status, input.status, actor);
-      if (actor === 'customer' && current.status === 'RESOLVED' && input.status === 'IN_PROGRESS') {
-        const resolvedAgoMs = now.getTime() - new Date(current.resolvedAt ?? current.openedAt).getTime();
-        if (resolvedAgoMs > REOPEN_WINDOW_DAYS * MS_PER_DAY) {
-          throw new BusinessRuleError('reopen-window-closed', `Tickets can only be reopened within ${REOPEN_WINDOW_DAYS} days of resolution`);
-        }
-      }
-      const ticket = await this.repo.update(current.id, current.version, statusTransitionPatch(current, input.status, actor, now), tx);
+      this.assertReopenAllowed(current, input.status, actor, now);
+
+      const patch = statusTransitionPatch(current, input.status, actor, now);
+      const ticket = await this.repo.update(current.id, current.version, patch, tx);
       const event = await this.repo.addEvent(
         {
           ticketId: current.id,
@@ -248,22 +153,13 @@ export class TicketsService {
         },
         tx
       );
-      await this.audit.record(
-        {
-          accountId: ctx.accountId,
-          actorId: ctx.userId,
-          action: `ticket.${input.status.toLowerCase()}`,
-          entity: 'ticket',
-          entityId: current.id,
-          details: { from: current.status, to: input.status, reason: input.reason ?? null }
-        },
-        tx
-      );
+      const details = { from: current.status, to: input.status, reason: input.reason ?? null };
+      await this.recordAudit(ctx, `ticket.${input.status.toLowerCase()}`, current.id, details, tx);
       return { ticket, event };
     });
 
-    await this.notifySafely(ticket, event);
-    return { ...ticket, sla: slaView(ticket, now) };
+    await this.notifySafely(change.ticket, change.event);
+    return { ...change.ticket, sla: slaView(change.ticket, now) };
   }
 
   /**
@@ -274,28 +170,15 @@ export class TicketsService {
     const actor = actorFor(ctx);
     const now = this.clock.now();
 
-    const { ticket, event } = await this.db.tx(async (tx) => {
+    const change = await this.db.tx(async (tx) => {
       const current = await this.requireTicket(ctx, ticketId, tx);
       this.assertVersion(current, input.version);
-      if (current.status === 'RESOLVED' || current.status === 'CLOSED') {
-        throw new BusinessRuleError('ticket-not-active', 'Only active tickets can be escalated');
-      }
-      if (current.escalationLevel >= MAX_ESCALATION_LEVEL) {
-        throw new BusinessRuleError('max-escalation', 'This ticket is already at the highest escalation level');
-      }
       const consumed = resolutionConsumedBps(current, now);
-      if (actor === 'customer' && current.priority !== 'P1' && consumed < CUSTOMER_ESCALATION_MIN_CONSUMED_BPS) {
-        throw new BusinessRuleError('escalation-too-early', 'This ticket is still well within its resolution target', {
-          consumedBps: consumed,
-          requiredBps: CUSTOMER_ESCALATION_MIN_CONSUMED_BPS
-        });
-      }
-      const last = await this.repo.lastEventAt(current.id, 'ESCALATION', tx);
-      if (last && now.getTime() - last.getTime() < ESCALATION_COOLDOWN_MINUTES * MS_PER_MINUTE) {
-        throw new BusinessRuleError('escalation-cooldown', `Escalations are limited to one every ${ESCALATION_COOLDOWN_MINUTES} minutes`);
-      }
+      await this.assertCanEscalate(current, actor, consumed, now, tx);
+
       // Never escalate below the level the SLA position already implies.
-      const level = Math.min(MAX_ESCALATION_LEVEL, Math.max(current.escalationLevel + 1, automaticEscalationLevel(consumed)));
+      const wanted = Math.max(current.escalationLevel + 1, automaticEscalationLevel(consumed));
+      const level = Math.min(MAX_ESCALATION_LEVEL, wanted);
       const ticket = await this.repo.update(current.id, current.version, { escalationLevel: level }, tx);
       const event = await this.repo.addEvent(
         {
@@ -308,15 +191,12 @@ export class TicketsService {
         },
         tx
       );
-      await this.audit.record(
-        { accountId: ctx.accountId, actorId: ctx.userId, action: 'ticket.escalated', entity: 'ticket', entityId: current.id, details: { level, reason: input.reason } },
-        tx
-      );
+      await this.recordAudit(ctx, 'ticket.escalated', current.id, { level, reason: input.reason }, tx);
       return { ticket, event };
     });
 
-    await this.notifySafely(ticket, event);
-    return { ...ticket, sla: slaView(ticket, now) };
+    await this.notifySafely(change.ticket, change.event);
+    return { ...change.ticket, sla: slaView(change.ticket, now) };
   }
 
   /** Agent-only re-triage. Due dates are recomputed from the original open time. */
@@ -328,21 +208,120 @@ export class TicketsService {
       this.assertVersion(current, input.version);
       if (current.priority === input.priority) return current;
       if (current.status === 'CLOSED') throw new BusinessRuleError('ticket-closed', 'Closed tickets cannot be re-prioritised');
+
       const due = computeDueDates(current.slaTier, input.priority, new Date(current.openedAt), effectivePausedMs(current, now));
       const patch: TicketPatch = { priority: input.priority, resolutionDueAt: due.resolutionDueAt.toISOString() };
       if (!current.firstResponseAt) patch.responseDueAt = due.responseDueAt.toISOString();
       const updated = await this.repo.update(current.id, current.version, patch, tx);
       await this.repo.addEvent(
-        { ticketId: current.id, kind: 'PRIORITY_CHANGE', authorId: ctx.userId, body: input.reason, fromValue: current.priority, toValue: input.priority, internal: true },
+        {
+          ticketId: current.id,
+          kind: 'PRIORITY_CHANGE',
+          authorId: ctx.userId,
+          body: input.reason,
+          fromValue: current.priority,
+          toValue: input.priority,
+          internal: true
+        },
         tx
       );
-      await this.audit.record(
-        { accountId: ctx.accountId, actorId: ctx.userId, action: 'ticket.reprioritised', entity: 'ticket', entityId: current.id, details: { from: current.priority, to: input.priority } },
-        tx
-      );
+      await this.recordAudit(ctx, 'ticket.reprioritised', current.id, { from: current.priority, to: input.priority }, tx);
       return updated;
     });
     return { ...ticket, sla: slaView(ticket, now) };
+  }
+
+  /** Works out the site and SLA tier for a new ticket from its service or site. */
+  private async resolveTarget(ctx: AuthContext, input: NewTicketInput): Promise<TicketTarget> {
+    const siteId = input.siteId ?? null;
+
+    if (input.serviceId) {
+      const service = await this.inventory.findService(ctx.accountId, input.serviceId);
+      if (!service || !canAccessSite(ctx, service.siteId)) throw new NotFoundError('Service', input.serviceId);
+      if (siteId && siteId !== service.siteId) {
+        throw new BusinessRuleError('service-site-mismatch', 'The service does not belong to the selected site');
+      }
+      if (service.status === 'CEASED') {
+        throw new BusinessRuleError('service-ceased', 'Tickets cannot be raised against a ceased service');
+      }
+      return { siteId: service.siteId, tier: service.slaTier, serviceStatus: service.status };
+    }
+
+    if (siteId) {
+      const site = await this.inventory.findSite(ctx.accountId, siteId);
+      if (!site || !canAccessSite(ctx, siteId)) throw new NotFoundError('Site', siteId);
+    }
+    const account = await this.accounts.get(ctx.accountId);
+    return { siteId, tier: account.slaTier, serviceStatus: null };
+  }
+
+  /** Only one fault may be open per service at a time. */
+  private async assertNoOpenFault(ctx: AuthContext, input: NewTicketInput, tx: Db): Promise<void> {
+    if (input.category !== 'FAULT' || !input.serviceId) return;
+    const duplicate = await this.repo.findOpenFaultForService(ctx.accountId, input.serviceId, tx);
+    if (!duplicate) return;
+    throw new ConflictError(`Fault ${duplicate.reference} is already open for this service`, {
+      ticketId: duplicate.id,
+      reference: duplicate.reference
+    });
+  }
+
+  /** Patch applied alongside a comment (customer reply or first agent response). */
+  private async commentPatch(
+    ctx: AuthContext,
+    current: Ticket,
+    actor: TicketActor,
+    internal: boolean,
+    now: Date,
+    tx: Db
+  ): Promise<TicketPatch> {
+    if (actor === 'customer' && current.status === 'PENDING_CUSTOMER') {
+      // A customer reply hands the ticket back to the agent and restarts the clock.
+      await this.repo.addEvent(
+        { ticketId: current.id, kind: 'STATUS_CHANGE', authorId: ctx.userId, fromValue: current.status, toValue: 'IN_PROGRESS' },
+        tx
+      );
+      return statusTransitionPatch(current, 'IN_PROGRESS', actor, now);
+    }
+    if (actor === 'agent' && !internal && !current.firstResponseAt) {
+      return { firstResponseAt: now.toISOString() };
+    }
+    return {};
+  }
+
+  /** Customers can only reopen a resolved ticket within the reopen window. */
+  private assertReopenAllowed(current: Ticket, to: TicketStatus, actor: TicketActor, now: Date): void {
+    if (actor !== 'customer' || current.status !== 'RESOLVED' || to !== 'IN_PROGRESS') return;
+    const resolvedAgoMs = now.getTime() - new Date(current.resolvedAt ?? current.openedAt).getTime();
+    if (resolvedAgoMs > REOPEN_WINDOW_DAYS * MS_PER_DAY) {
+      throw new BusinessRuleError('reopen-window-closed', `Tickets can only be reopened within ${REOPEN_WINDOW_DAYS} days of resolution`);
+    }
+  }
+
+  private async assertCanEscalate(current: Ticket, actor: TicketActor, consumed: number, now: Date, tx: Db): Promise<void> {
+    if (current.status === 'RESOLVED' || current.status === 'CLOSED') {
+      throw new BusinessRuleError('ticket-not-active', 'Only active tickets can be escalated');
+    }
+    if (current.escalationLevel >= MAX_ESCALATION_LEVEL) {
+      throw new BusinessRuleError('max-escalation', 'This ticket is already at the highest escalation level');
+    }
+    if (actor === 'customer' && current.priority !== 'P1' && consumed < CUSTOMER_ESCALATION_MIN_CONSUMED_BPS) {
+      throw new BusinessRuleError('escalation-too-early', 'This ticket is still well within its resolution target', {
+        consumedBps: consumed,
+        requiredBps: CUSTOMER_ESCALATION_MIN_CONSUMED_BPS
+      });
+    }
+    const last = await this.repo.lastEventAt(current.id, 'ESCALATION', tx);
+    if (last && now.getTime() - last.getTime() < ESCALATION_COOLDOWN_MINUTES * MS_PER_MINUTE) {
+      throw new BusinessRuleError('escalation-cooldown', `Escalations are limited to one every ${ESCALATION_COOLDOWN_MINUTES} minutes`);
+    }
+  }
+
+  private async recordAudit(ctx: AuthContext, action: string, ticketId: string, details: Record<string, unknown>, tx: Db): Promise<void> {
+    await this.audit.record(
+      { accountId: ctx.accountId, actorId: ctx.userId, action, entity: 'ticket', entityId: ticketId, details },
+      tx
+    );
   }
 
   private assertVersion(ticket: Ticket, version: number): void {

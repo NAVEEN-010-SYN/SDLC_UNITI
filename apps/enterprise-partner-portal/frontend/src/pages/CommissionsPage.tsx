@@ -17,12 +17,12 @@ function StatementDetail({ id, onChanged }: { id: string; onChanged: () => void 
   const [reason, setReason] = useState('');
 
   if (detail.error) return <ErrorBanner error={detail.error} />;
-  if (!detail.data) return <p className="loading">Loading statement…</p>;
+  if (!detail.data) return <p className="loading">Loading statement&hellip;</p>;
   const { statement: s, entries, payout } = detail.data;
 
   return (
     <section className="panel" aria-label={`Statement ${s.reference}`}>
-      <h2>{s.reference}: {formatDate(s.periodStart)} – {formatDate(s.periodEnd)}</h2>
+      <h2>{s.reference}: {formatDate(s.periodStart)} &ndash; {formatDate(s.periodEnd)}</h2>
       <dl className="breakdown">
         <dt>Accrued</dt><dd><Money minor={s.accruedMinor} currency={s.currency} /></dd>
         <dt>Clawbacks</dt><dd><Money minor={s.clawbackMinor} currency={s.currency} /></dd>
@@ -41,7 +41,7 @@ function StatementDetail({ id, onChanged }: { id: string; onChanged: () => void 
             {entries.map((e) => (
               <tr key={e.id}>
                 <td>{formatDate(e.earnedOn)}</td>
-                <td>{e.orderReference ?? '—'}</td>
+                <td>{e.orderReference ?? '\u2014'}</td>
                 <td>{humanise(e.type)}</td>
                 <td>{e.description}</td>
                 <td style={{ textAlign: 'right' }}><Money minor={e.amountMinor} currency={e.currency} signed /></td>
@@ -80,7 +80,7 @@ export function CommissionsPage() {
 
   const columns: Column<Statement>[] = [
     { header: 'Statement', render: (s) => s.reference },
-    { header: 'Period', render: (s) => `${formatDate(s.periodStart)} – ${formatDate(s.periodEnd)}` },
+    { header: 'Period', render: (s) => `${formatDate(s.periodStart)} \u2013 ${formatDate(s.periodEnd)}` },
     { header: 'Net payable', align: 'right', render: (s) => <Money minor={s.netPayableMinor} currency={s.currency} /> },
     { header: 'Status', render: (s) => <StatusBadge status={s.status} /> },
     { header: '', render: (s) => <button type="button" onClick={() => setSelected(s.id)}>View</button> },
@@ -93,7 +93,7 @@ export function CommissionsPage() {
       <ErrorBanner error={summary.error} />
       {sum && (
         <section className="grid" aria-label="Commission summary">
-          <div className="kpi"><div className="kpi__label">Tier rate</div><div className="kpi__value">{humanise(sum.tier)} · {formatBps(sum.tierRateBps)}</div></div>
+          <div className="kpi"><div className="kpi__label">Tier rate</div><div className="kpi__value">{humanise(sum.tier)} &middot; {formatBps(sum.tierRateBps)}</div></div>
           <div className="kpi"><div className="kpi__label">Earned this year</div><div className="kpi__value"><Money minor={sum.earnedYearToDateMinor} currency={sum.currency} /></div></div>
           <div className="kpi"><div className="kpi__label">Not yet on a statement</div><div className="kpi__value"><Money minor={sum.unbilledMinor} currency={sum.currency} /></div></div>
           <div className="kpi"><div className="kpi__label">Paid this year</div><div className="kpi__value"><Money minor={sum.paidYearToDateMinor} currency={sum.currency} /></div></div>

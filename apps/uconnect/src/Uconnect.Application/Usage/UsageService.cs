@@ -141,13 +141,8 @@ public sealed class UsageService
                 continue;
             }
 
-            if (!services.TryGetValue(input.ServiceId, out var service))
-            {
-                service = await _services.GetByIdAsync(input.ServiceId, ct);
-                services[input.ServiceId] = service;
-            }
-
-            if (service is null || service.ActivatedOn is not { } activated || input.Date < activated)
+            var service = await GetCachedServiceAsync(services, input.ServiceId, ct);
+            if (service == null || service.ActivatedOn == null || input.Date < service.ActivatedOn.Value)
             {
                 errors.Add($"{input.ServiceId}/{input.Date:yyyy-MM-dd}: no active service on that date.");
                 continue;
@@ -169,6 +164,18 @@ public sealed class UsageService
         await _unitOfWork.SaveChangesAsync(ct);
         _logger.LogInformation("Usage batch ingested: {Inserted} new, {Corrected} corrected, {Rejected} rejected", inserted, corrected, errors.Count);
         return new UsageIngestResult(inserted, corrected, errors.Count, errors.Take(100).ToList());
+    }
+
+    private async Task<Service?> GetCachedServiceAsync(Dictionary<Guid, Service?> cache, Guid serviceId, CancellationToken ct)
+    {
+        if (cache.TryGetValue(serviceId, out var cached))
+        {
+            return cached;
+        }
+
+        var service = await _services.GetByIdAsync(serviceId, ct);
+        cache[serviceId] = service;
+        return service;
     }
 
     private static IReadOnlyList<DailyUsageDto> DailySeries(BillingPeriod period, DateOnly lastDay, IReadOnlyList<UsageRecord> records)

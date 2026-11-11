@@ -10,6 +10,12 @@ export interface Session {
   partnerId: string | null;
 }
 
+interface PendingLogin {
+  verifier: string;
+  state: string;
+  returnUrl: string;
+}
+
 const SESSION_KEY = 'icw.session';
 const PKCE_KEY = 'icw.pkce';
 
@@ -55,7 +61,7 @@ export class AuthService {
 
   /** Exchanges the authorization code; returns the URL the user originally asked for. */
   async completeLogin(code: string, state: string): Promise<string> {
-    const pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) ?? 'null') as { verifier: string; state: string; returnUrl: string } | null;
+    const pending = JSON.parse(sessionStorage.getItem(PKCE_KEY) ?? 'null') as PendingLogin | null;
     sessionStorage.removeItem(PKCE_KEY);
     if (!pending || pending.state !== state) {
       throw new Error('Login state mismatch; please sign in again.');
@@ -123,12 +129,24 @@ export class AuthService {
   }
 }
 
+const PKCE_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+
 function randomString(length: number): string {
   const bytes = crypto.getRandomValues(new Uint8Array(length));
-  return Array.from(bytes, (b) => 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~'[b % 66]).join('');
+  let result = '';
+  for (const b of bytes) {
+    result += PKCE_ALPHABET[b % 66];
+  }
+  return result;
 }
 
+/** S256 code challenge: base64url(sha256(verifier)) without padding. */
 async function challengeFor(verifier: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier));
-  return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  let binary = '';
+  for (const b of new Uint8Array(digest)) {
+    binary += String.fromCharCode(b);
+  }
+  const base64 = btoa(binary);
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }

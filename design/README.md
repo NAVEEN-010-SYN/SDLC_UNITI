@@ -3,11 +3,11 @@
 The source of truth for colour, typography, spacing, radius and elevation across every portal and the iOS app.
 
 ```
-Figma variables ──pull──> tokens/*.tokens.json (W3C format, reviewed in PRs) ──build──> dist/
-                                                                                ├─ tokens.css          web custom properties, light + dark
-                                                                                ├─ _tokens.scss        SCSS variables + dark mixin
-                                                                                ├─ theme.ts            typed theme object (React / React Native)
-                                                                                └─ UnitiTokens.swift   SwiftUI constants (gokinetic-consumer-ios)
+Figma variables --pull--> tokens/*.tokens.json (W3C format, reviewed in PRs) --build--> dist/
+                                                                                |- tokens.css          web custom properties, light + dark
+                                                                                |- _tokens.scss        SCSS variables + dark mixin
+                                                                                |- theme.ts            typed theme object (React / React Native)
+                                                                                |- UnitiTokens.swift   SwiftUI constants (gokinetic-consumer-ios)
 ```
 
 ## Files

@@ -34,23 +34,28 @@ public final class TestDataProviders {
     @DataProvider(name = "validDeals", parallel = true)
     public static Object[][] validDeals() {
         List<Map<String, Object>> rows = readJson("testdata/deals-valid.json", new TypeReference<>() { });
-        return rows.stream()
-                .map(row -> new Object[] {
-                        row.get("scenario"),
-                        DealData.unique(castList(row.get("products")), ((Number) row.get("sites")).intValue(),
-                                ((Number) row.get("monthlyValueMinor")).longValue())
-                })
-                .toArray(Object[][]::new);
+        Object[][] data = new Object[rows.size()][];
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, Object> row = rows.get(i);
+            int sites = ((Number) row.get("sites")).intValue();
+            long monthlyValueMinor = ((Number) row.get("monthlyValueMinor")).longValue();
+            DealData deal = DealData.unique(castList(row.get("products")), sites, monthlyValueMinor);
+            data[i] = new Object[] { row.get("scenario"), deal };
+        }
+        return data;
     }
 
     /** Invalid customer step inputs paired with the field expected to be flagged. */
     @DataProvider(name = "invalidDealCustomer")
     public static Object[][] invalidDealCustomer() {
         List<Map<String, String>> rows = readJson("testdata/deals-invalid-customer.json", new TypeReference<>() { });
-        return rows.stream()
-                .map(row -> new Object[] { row.get("scenario"), row.get("customerName"), row.get("customerDomain"),
-                        row.get("contactEmail"), row.get("invalidField") })
-                .toArray(Object[][]::new);
+        Object[][] data = new Object[rows.size()][];
+        for (int i = 0; i < rows.size(); i++) {
+            Map<String, String> row = rows.get(i);
+            data[i] = new Object[] { row.get("scenario"), row.get("customerName"), row.get("customerDomain"),
+                    row.get("contactEmail"), row.get("invalidField") };
+        }
+        return data;
     }
 
     /** Invite inputs for Uconnect user management and the expected outcome. */

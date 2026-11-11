@@ -136,22 +136,21 @@ export interface FgtFirewallPolicy {
   comments?: string;
 }
 
-/** /api/v2/monitor/virtual-wan/health-check result: health-check name → member interface → stats. */
-export type FgtHealthCheckMonitor = Record<
-  string,
-  Record<
-    string,
-    {
-      status: 'up' | 'down' | 'error';
-      latency?: number;
-      jitter?: number;
-      packet_loss?: number;
-      tx_bandwidth?: number;
-      rx_bandwidth?: number;
-      state_changed?: number;
-    }
-  >
->;
+export interface FgtHealthCheckStats {
+  status: 'up' | 'down' | 'error';
+  latency?: number;
+  jitter?: number;
+  packet_loss?: number;
+  tx_bandwidth?: number;
+  rx_bandwidth?: number;
+  state_changed?: number;
+}
+
+/** Stats keyed by member interface name. */
+export type FgtHealthCheckMembers = Record<string, FgtHealthCheckStats>;
+
+/** /api/v2/monitor/virtual-wan/health-check result: health-check name -> member interface -> stats. */
+export type FgtHealthCheckMonitor = Record<string, FgtHealthCheckMembers>;
 
 export interface FgtEventLog {
   eventtime: number;

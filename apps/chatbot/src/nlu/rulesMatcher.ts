@@ -92,12 +92,11 @@ export const DEFAULT_RULES: IntentRule[] = [
 const SHORT_FORM_MAX_TOKENS = 4;
 
 export function normalise(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/['’]/g, '')
-    .replace(/[^a-z0-9\s]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let result = text.toLowerCase();
+  result = result.replace(/['\u2019]/g, '');
+  result = result.replace(/[^a-z0-9\s]/g, ' ');
+  result = result.replace(/\s+/g, ' ');
+  return result.trim();
 }
 
 export function tokenize(text: string): string[] {
@@ -123,16 +122,23 @@ export class RulesMatcher {
       if (rule.shortFormOnly && tokens.length > SHORT_FORM_MAX_TOKENS) continue;
       if (rule.negatives?.some((neg) => tokenSet.has(neg))) continue;
 
-      let evidence = 0;
-      for (const phrase of rule.phrases) {
-        if (` ${normalised} `.includes(` ${phrase} `)) evidence += 1.2;
+      const evidence = this.evidenceFor(rule, normalised, tokenSet);
+      if (evidence > 0) {
+        results.push({ intent: rule.intent, score: Number(saturate(evidence).toFixed(4)) });
       }
-      for (const [keyword, weight] of Object.entries(rule.keywords)) {
-        if (tokenSet.has(keyword)) evidence += weight;
-      }
-      if (evidence > 0) results.push({ intent: rule.intent, score: Number(saturate(evidence).toFixed(4)) });
     }
     return results.sort((a, b) => b.score - a.score);
+  }
+
+  private evidenceFor(rule: IntentRule, normalised: string, tokenSet: Set<string>): number {
+    let evidence = 0;
+    for (const phrase of rule.phrases) {
+      if (` ${normalised} `.includes(` ${phrase} `)) evidence += 1.2;
+    }
+    for (const [keyword, weight] of Object.entries(rule.keywords)) {
+      if (tokenSet.has(keyword)) evidence += weight;
+    }
+    return evidence;
   }
 
   best(text: string): RuleScore | undefined {

@@ -2,8 +2,8 @@ import Foundation
 import GoKineticCore
 import GoKineticUI
 
-/// Multi-step plan upgrade: choose tier → choose timing → review quote →
-/// submit → track order. Modelled as an explicit state machine so illegal
+/// Multi-step plan upgrade: choose tier -> choose timing -> review quote ->
+/// submit -> track order. Modelled as an explicit state machine so illegal
 /// transitions (e.g. submitting an expired quote) are impossible.
 @MainActor
 public final class UpgradeFlowViewModel: ObservableObject {
@@ -150,7 +150,7 @@ public final class UpgradeFlowViewModel: ObservableObject {
 
     public func reviewLines(for quote: UpgradeQuote) -> [(label: String, value: String)] {
         var lines: [(String, String)] = [
-            (L10n.string("upgrade.newPlan"), "\(quote.targetPlan.name) · \(quote.targetPlan.speedLabel)"),
+            (L10n.string("upgrade.newPlan"), "\(quote.targetPlan.name) \u{00B7} \(quote.targetPlan.speedLabel)"),
             (L10n.string("upgrade.newMonthly"), formatter.string(from: quote.newMonthlyPrice)),
             (L10n.string("upgrade.prorated"), formatter.string(from: quote.proratedCharge))
         ]

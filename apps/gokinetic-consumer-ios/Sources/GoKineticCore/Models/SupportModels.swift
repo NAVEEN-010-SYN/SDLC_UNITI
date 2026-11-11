@@ -16,7 +16,7 @@ public enum TicketPriority: String, Codable, Sendable, CaseIterable, Comparable 
     public static func < (lhs: TicketPriority, rhs: TicketPriority) -> Bool { lhs.rank < rhs.rank }
 }
 
-/// Ticket status: OPEN → IN_PROGRESS → PENDING_CUSTOMER → RESOLVED → CLOSED.
+/// Ticket status: OPEN -> IN_PROGRESS -> PENDING_CUSTOMER -> RESOLVED -> CLOSED.
 public enum TicketStatus: String, Codable, Sendable, CaseIterable {
     case open = "OPEN"
     case inProgress = "IN_PROGRESS"

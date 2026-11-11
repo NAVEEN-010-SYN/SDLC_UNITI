@@ -69,12 +69,19 @@ public sealed class AccountAccessGuard
         return account;
     }
 
-    /// <summary>Role → permission matrix for customer roles.</summary>
-    public static bool RoleAllows(string role, AccountPermission permission) => role switch
+    /// <summary>Role -> permission matrix for customer roles.</summary>
+    public static bool RoleAllows(string role, AccountPermission permission)
     {
-        UserRoles.Consumer => permission != AccountPermission.Administer,
-        UserRoles.BusinessAdmin => true,
-        UserRoles.BusinessUser => permission is AccountPermission.View or AccountPermission.Support,
-        _ => false,
-    };
+        switch (role)
+        {
+            case UserRoles.Consumer:
+                return permission != AccountPermission.Administer;
+            case UserRoles.BusinessAdmin:
+                return true;
+            case UserRoles.BusinessUser:
+                return permission == AccountPermission.View || permission == AccountPermission.Support;
+            default:
+                return false;
+        }
+    }
 }

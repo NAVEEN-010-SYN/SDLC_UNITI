@@ -83,10 +83,18 @@ abstract class ApiFormRequest extends FormRequest
                 $result[$field] = ['prohibited'];
                 continue;
             }
-            if ($topLevel) {
-                $fieldRules = ['sometimes', ...array_values(array_filter($fieldRules, static fn ($r) => $r !== 'required'))];
+            if (!$topLevel) {
+                $result[$field] = $fieldRules;
+                continue;
             }
-            $result[$field] = $fieldRules;
+
+            $optional = ['sometimes'];
+            foreach ($fieldRules as $rule) {
+                if ($rule !== 'required') {
+                    $optional[] = $rule;
+                }
+            }
+            $result[$field] = $optional;
         }
 
         return $result;

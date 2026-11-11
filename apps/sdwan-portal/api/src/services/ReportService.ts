@@ -26,7 +26,7 @@ export interface LinkSlaRow {
 export interface SiteSlaRow {
   siteId: string;
   siteName: string;
-  /** A site is available when at least one of its links is — the point of SD-WAN. */
+  /** A site is available when at least one of its links is - the point of SD-WAN. */
   availabilityPct: number | null;
   worstLinkCompliancePct: number | null;
 }

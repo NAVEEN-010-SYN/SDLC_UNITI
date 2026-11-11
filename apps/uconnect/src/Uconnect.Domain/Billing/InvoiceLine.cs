@@ -2,7 +2,7 @@ using Uconnect.Domain.Common;
 
 namespace Uconnect.Domain.Billing;
 
-/// <summary>A single charge or credit on an invoice. Amount = unit amount × quantity.</summary>
+/// <summary>A single charge or credit on an invoice. Amount = unit amount x quantity.</summary>
 public sealed class InvoiceLine : Entity
 {
     private InvoiceLine()

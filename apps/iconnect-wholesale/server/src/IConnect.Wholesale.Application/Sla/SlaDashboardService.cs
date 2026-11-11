@@ -69,44 +69,90 @@ public sealed class SlaDashboardService
 
     public SlaPolicyDto GetPolicy()
     {
-        var targets = Enum.GetValues<CareLevel>()
-            .SelectMany(care => Enum.GetValues<FaultPriority>().Select(p => _policy.RepairTarget(care, p)))
-            .Select(t => new RepairTargetDto(t.CareLevel.ToString(), t.Priority.ToString(), t.Calendar.ToString(), t.Target.TotalHours))
-            .ToList();
+        var targets = new List<RepairTargetDto>();
+        foreach (var care in Enum.GetValues<CareLevel>())
+        {
+            foreach (var priority in Enum.GetValues<FaultPriority>())
+            {
+                var t = _policy.RepairTarget(care, priority);
+                targets.Add(new RepairTargetDto(t.CareLevel.ToString(), t.Priority.ToString(), t.Calendar.ToString(), t.Target.TotalHours));
+            }
+        }
 
-        var leadTimes = Enum.GetValues<OrderType>()
-            .ToDictionary(t => t.ToString().ToUpperInvariant(), t => _policy.OrderLeadTimeWorkingDays(t));
+        var leadTimes = new Dictionary<string, int>();
+        foreach (var type in Enum.GetValues<OrderType>())
+        {
+            leadTimes[type.ToString().ToUpperInvariant()] = _policy.OrderLeadTimeWorkingDays(type);
+        }
 
-        var terms = Enum.GetValues<CareLevel>()
-            .Select(_credits.TermsFor)
-            .Select(t => new CreditTermsDto(t.CareLevel.ToString(), t.FaultCreditBpsPerBreachDay, t.FaultCreditCapBps,
-                t.LateDeliveryPerDayMinor, t.LateDeliveryMaxDays, t.MissedAppointmentMinor))
-            .ToList();
+        var terms = new List<CreditTermsDto>();
+        foreach (var care in Enum.GetValues<CareLevel>())
+        {
+            var t = _credits.TermsFor(care);
+            terms.Add(new CreditTermsDto(t.CareLevel.ToString(), t.FaultCreditBpsPerBreachDay, t.FaultCreditCapBps,
+                t.LateDeliveryPerDayMinor, t.LateDeliveryMaxDays, t.MissedAppointmentMinor));
+        }
 
         return new SlaPolicyDto(targets, leadTimes, terms);
     }
 
     public async Task<SlaSummaryDto> GetSummaryAsync(CancellationToken ct)
     {
-        var partner = await _partners.GetAsync(_caller.PartnerId, ct) ?? throw new NotFoundException("Partner", _caller.PartnerId);
+        var partner = await _partners.GetAsync(_caller.PartnerId, ct);
+        if (partner is null)
+        {
+            throw new NotFoundException("Partner", _caller.PartnerId);
+        }
+
         var now = _clock.UtcNow;
         var orderCalendar = _calendars.Get(SlaPolicy.OrderCalendar);
         var today = orderCalendar.LocalDate(now);
         var periodStart = new DateOnly(today.Year, today.Month, 1);
 
+        var orders = await CollectOrderItemsAsync(orderCalendar, now, ct);
+        var faults = await CollectFaultItemsAsync(now, ct);
+        var allItems = new List<SlaItemDto>(orders);
+        allItems.AddRange(faults);
+
+        var fromInstant = new DateTimeOffset(periodStart.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        var faultCredits = await SumFaultCreditsAsync(partner.Id, partner.Currency, fromInstant, now, ct);
+        var lateCredits = await SumLateDeliveryCreditsAsync(partner.Id, partner.Currency, periodStart, today, orderCalendar, ct);
+
+        return new SlaSummaryDto(
+            periodStart,
+            today,
+            orders.Count,
+            CountWithStatus(orders, SlaStatus.AtRisk),
+            CountWithStatus(orders, SlaStatus.Breached),
+            faults.Count,
+            CountWithStatus(faults, SlaStatus.AtRisk),
+            CountWithStatus(faults, SlaStatus.Breached),
+            faultCredits.MinorUnits,
+            lateCredits.MinorUnits,
+            partner.Currency,
+            RankForAttention(allItems));
+    }
+
+    private async Task<List<SlaItemDto>> CollectOrderItemsAsync(WorkingCalendar orderCalendar, DateTimeOffset now, CancellationToken ct)
+    {
         var items = new List<SlaItemDto>();
         foreach (var status in InFlightOrders)
         {
             await foreach (var order in ScanOrdersAsync(status, ct))
             {
-                if (order.DeliveryClock is { } clock)
+                if (order.DeliveryClock is not null)
                 {
-                    items.Add(ToItem(order.Id, "ORDER", order.Reference, status.ToString(), clock, orderCalendar, now));
+                    items.Add(ToItem(order.Id, "ORDER", order.Reference, status.ToString(), order.DeliveryClock, orderCalendar, now));
                 }
             }
         }
 
-        var openOrders = items.Count;
+        return items;
+    }
+
+    private async Task<List<SlaItemDto>> CollectFaultItemsAsync(DateTimeOffset now, CancellationToken ct)
+    {
+        var items = new List<SlaItemDto>();
         foreach (var status in OpenFaults)
         {
             await foreach (var fault in ScanFaultsAsync(status, ct))
@@ -116,46 +162,78 @@ public sealed class SlaDashboardService
             }
         }
 
-        var orders = items.Take(openOrders).ToList();
-        var faults = items.Skip(openOrders).ToList();
+        return items;
+    }
 
-        var fromInstant = new DateTimeOffset(periodStart.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var credited = await _faults.ListResolvedWithCreditBetweenAsync(partner.Id, fromInstant, now, ct);
-        var faultCredits = Money.Sum(credited.Where(f => f.ServiceCredit is not null).Select(f => f.ServiceCredit!.Value), partner.Currency);
+    private async Task<Money> SumFaultCreditsAsync(Guid partnerId, string currency, DateTimeOffset from, DateTimeOffset now, CancellationToken ct)
+    {
+        var credited = await _faults.ListResolvedWithCreditBetweenAsync(partnerId, from, now, ct);
+        var amounts = new List<Money>();
+        foreach (var f in credited)
+        {
+            if (f.ServiceCredit is not null)
+            {
+                amounts.Add(f.ServiceCredit.Value);
+            }
+        }
 
-        var completed = await _orders.ListCompletedBetweenAsync(partner.Id, periodStart, today, ct);
-        var lateCredits = Money.Sum(
-            completed.Select(o => _credits.ForLateDelivery(o.CareLevel, o.WorkingDaysLate(orderCalendar), partner.Currency).Amount),
-            partner.Currency);
+        return Money.Sum(amounts, currency);
+    }
 
-        return new SlaSummaryDto(
-            periodStart,
-            today,
-            orders.Count,
-            orders.Count(i => i.SlaStatus == nameof(SlaStatus.AtRisk)),
-            orders.Count(i => i.SlaStatus == nameof(SlaStatus.Breached)),
-            faults.Count,
-            faults.Count(i => i.SlaStatus == nameof(SlaStatus.AtRisk)),
-            faults.Count(i => i.SlaStatus == nameof(SlaStatus.Breached)),
-            faultCredits.MinorUnits,
-            lateCredits.MinorUnits,
-            partner.Currency,
-            RankForAttention(items));
+    private async Task<Money> SumLateDeliveryCreditsAsync(Guid partnerId, string currency, DateOnly periodStart, DateOnly today,
+        WorkingCalendar orderCalendar, CancellationToken ct)
+    {
+        var completed = await _orders.ListCompletedBetweenAsync(partnerId, periodStart, today, ct);
+        var amounts = new List<Money>();
+        foreach (var o in completed)
+        {
+            amounts.Add(_credits.ForLateDelivery(o.CareLevel, o.WorkingDaysLate(orderCalendar), currency).Amount);
+        }
+
+        return Money.Sum(amounts, currency);
+    }
+
+    private static int CountWithStatus(List<SlaItemDto> items, SlaStatus status)
+    {
+        var name = status.ToString();
+        var count = 0;
+        foreach (var item in items)
+        {
+            if (item.SlaStatus == name)
+            {
+                count++;
+            }
+        }
+
+        return count;
     }
 
     /// <summary>Breached items first, then at-risk items soonest-due first; healthy and paused items are omitted.</summary>
-    internal static IReadOnlyList<SlaItemDto> RankForAttention(IEnumerable<SlaItemDto> items) => items
-        .Where(i => i.SlaStatus is nameof(SlaStatus.Breached) or nameof(SlaStatus.AtRisk))
-        .OrderBy(i => i.SlaStatus == nameof(SlaStatus.Breached) ? 0 : 1)
-        .ThenBy(i => i.DueAt ?? DateTimeOffset.MaxValue)
-        .ThenBy(i => i.Reference, StringComparer.Ordinal)
-        .Take(AttentionListSize)
-        .ToList();
+    internal static IReadOnlyList<SlaItemDto> RankForAttention(IEnumerable<SlaItemDto> items)
+    {
+        var flagged = new List<SlaItemDto>();
+        foreach (var item in items)
+        {
+            if (item.SlaStatus == nameof(SlaStatus.Breached) || item.SlaStatus == nameof(SlaStatus.AtRisk))
+            {
+                flagged.Add(item);
+            }
+        }
+
+        var ranked = flagged
+            .OrderBy(i => i.SlaStatus == nameof(SlaStatus.Breached) ? 0 : 1)
+            .ThenBy(i => i.DueAt ?? DateTimeOffset.MaxValue)
+            .ThenBy(i => i.Reference, StringComparer.Ordinal);
+        return ranked.Take(AttentionListSize).ToList();
+    }
 
     private static SlaItemDto ToItem(Guid id, string kind, string reference, string status, SlaClock clock, WorkingCalendar calendar,
-        DateTimeOffset now) =>
-        new(id, kind, reference, ToScreamingSnake(status), clock.Status(calendar, now).ToString(), clock.DueAt(calendar, now),
-            Math.Round(clock.Remaining(calendar, now).TotalHours, 2));
+        DateTimeOffset now)
+    {
+        var remainingHours = Math.Round(clock.Remaining(calendar, now).TotalHours, 2);
+        return new SlaItemDto(id, kind, reference, ToScreamingSnake(status), clock.Status(calendar, now).ToString(),
+            clock.DueAt(calendar, now), remainingHours);
+    }
 
     /// <summary>"PendingCustomer" becomes "PENDING_CUSTOMER", matching the wire format of the other endpoints.</summary>
     internal static string ToScreamingSnake(string pascal)
@@ -179,8 +257,9 @@ public sealed class SlaDashboardService
         var scanned = 0;
         for (var page = 1; scanned < MaxScanPerStatus; page++)
         {
-            var result = await _orders.QueryAsync(new OrderQuery(_caller.PartnerId, status, null, null, null, null,
-                new PageRequest(page, PageRequest.MaxPageSize)), ct);
+            var pageRequest = new PageRequest(page, PageRequest.MaxPageSize);
+            var query = new OrderQuery(_caller.PartnerId, status, null, null, null, null, pageRequest);
+            var result = await _orders.QueryAsync(query, ct);
             foreach (var order in result.Items)
             {
                 yield return order;
@@ -199,7 +278,8 @@ public sealed class SlaDashboardService
         var scanned = 0;
         for (var page = 1; scanned < MaxScanPerStatus; page++)
         {
-            var result = await _faults.QueryAsync(new FaultQuery(_caller.PartnerId, status, null, new PageRequest(page, PageRequest.MaxPageSize)), ct);
+            var pageRequest = new PageRequest(page, PageRequest.MaxPageSize);
+            var result = await _faults.QueryAsync(new FaultQuery(_caller.PartnerId, status, null, pageRequest), ct);
             foreach (var fault in result.Items)
             {
                 yield return fault;

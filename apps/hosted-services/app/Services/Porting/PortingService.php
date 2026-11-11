@@ -178,13 +178,12 @@ final class PortingService
      */
     public function applyCarrierUpdate(string $carrierReference, PortingStatus $to, ?CarbonImmutable $focAt, ?string $reason): PortingRequest
     {
-        $request = $this->requests->findByCarrierReference($carrierReference)
-            ?? throw ValidationFailedException::forField('reference', 'Unknown carrier reference.');
-
-        if ($request->status === $to && $to !== PortingStatus::FocReceived) {
-            return $request;
+        $request = $this->requests->findByCarrierReference($carrierReference);
+        if ($request === null) {
+            throw ValidationFailedException::forField('reference', 'Unknown carrier reference.');
         }
-        if ($request->status === $to && $request->foc_at?->equalTo($focAt) === true) {
+
+        if ($this->isDuplicateUpdate($request, $to, $focAt)) {
             return $request;
         }
 
@@ -192,11 +191,12 @@ final class PortingService
         $ctx = new PortingContext($now, $request->numbers, $focAt ?? $request->foc_at, $request->resubmission_count, true, $reason);
         $this->machine->assertTransition($request->status, $to, $ctx);
 
-        $changes = match ($to) {
-            PortingStatus::FocReceived => ['foc_at' => $focAt],
-            PortingStatus::Rejected, PortingStatus::Failed => ['rejection_reason' => $reason],
-            default => [],
-        };
+        $changes = [];
+        if ($to === PortingStatus::FocReceived) {
+            $changes = ['foc_at' => $focAt];
+        } elseif ($to === PortingStatus::Rejected || $to === PortingStatus::Failed) {
+            $changes = ['rejection_reason' => $reason];
+        }
 
         if ($to === PortingStatus::Completed) {
             return DB::transaction(function () use ($request, $now, $changes): PortingRequest {
@@ -218,11 +218,35 @@ final class PortingService
     {
         $now = $this->now();
 
+        $deadline = $this->machine->cancelDeadline($request->status, $request->foc_at);
+        $allowed = [];
+        foreach ($this->machine->allowedTransitions($request->status) as $status) {
+            $allowed[] = $status->value;
+        }
+
         return [
-            'cancelDeadline' => $this->machine->cancelDeadline($request->status, $request->foc_at)?->toIso8601ZuluString(),
+            'cancelDeadline' => $deadline === null ? null : $deadline->toIso8601ZuluString(),
             'earliestPortDate' => $this->machine->earliestPortDate($now)->toDateString(),
-            'allowedTransitions' => array_map(static fn (PortingStatus $s) => $s->value, $this->machine->allowedTransitions($request->status)),
+            'allowedTransitions' => $allowed,
         ];
+    }
+
+    /**
+     * Same status delivered again (for FOC, only when the date is unchanged).
+     */
+    private function isDuplicateUpdate(PortingRequest $request, PortingStatus $to, ?CarbonImmutable $focAt): bool
+    {
+        if ($request->status !== $to) {
+            return false;
+        }
+        if ($to !== PortingStatus::FocReceived) {
+            return true;
+        }
+        if ($request->foc_at === null) {
+            return false;
+        }
+
+        return $request->foc_at->equalTo($focAt) === true;
     }
 
     private function materialiseNumbers(PortingRequest $request): void

@@ -115,11 +115,19 @@ internal sealed class FieldServiceClient : IFieldServiceClient
         var rows = await ExternalHttp.ReadAsync<List<CapacityRow>>(response, System, ct);
 
         var requested = slots.ToHashSet();
-        return rows
-            .Select(r => (Slot: new AppointmentSlot(r.Date, r.Window), r.Remaining))
-            .Where(r => requested.Contains(r.Slot))
-            .GroupBy(r => r.Slot)
-            .ToDictionary(g => g.Key, g => g.Sum(r => Math.Max(0, r.Remaining)));
+        var capacity = new Dictionary<AppointmentSlot, int>();
+        foreach (var row in rows)
+        {
+            var slot = new AppointmentSlot(row.Date, row.Window);
+            if (!requested.Contains(slot))
+            {
+                continue;
+            }
+
+            capacity[slot] = capacity.GetValueOrDefault(slot) + Math.Max(0, row.Remaining);
+        }
+
+        return capacity;
     }
 
     public async Task<WorkOrderConfirmation> CreateWorkOrderAsync(WorkOrderRequest order, CancellationToken ct)

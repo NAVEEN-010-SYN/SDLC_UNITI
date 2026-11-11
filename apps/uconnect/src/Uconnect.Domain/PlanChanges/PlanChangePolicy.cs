@@ -110,7 +110,7 @@ public static class PlanChangePolicy
     }
 
     /// <summary>
-    /// Fee for leaving the current price commitment early: (current price − new price) × remaining
+    /// Fee for leaving the current price commitment early: (current price - new price) x remaining
     /// contract months, capped. Zero outside contract or when the new plan is not cheaper.
     /// </summary>
     public static Money EarlyTerminationFee(Service service, Plan targetPlan, DateOnly effectiveOn)

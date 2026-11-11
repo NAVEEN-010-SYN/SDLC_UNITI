@@ -31,11 +31,18 @@ internal sealed class EfUnitOfWork : IUnitOfWork
 
     public async Task SaveChangesAsync(CancellationToken ct)
     {
-        var aggregates = _db.ChangeTracker.Entries<AggregateRoot>()
-            .Select(e => e.Entity)
-            .Where(a => a.DomainEvents.Count > 0)
-            .ToList();
-        var events = aggregates.SelectMany(a => a.DomainEvents).ToList();
+        // Snapshot events before saving; they are published only after a successful commit.
+        var aggregates = new List<AggregateRoot>();
+        var events = new List<IDomainEvent>();
+        foreach (var entry in _db.ChangeTracker.Entries<AggregateRoot>())
+        {
+            var aggregate = entry.Entity;
+            if (aggregate.DomainEvents.Count > 0)
+            {
+                aggregates.Add(aggregate);
+                events.AddRange(aggregate.DomainEvents);
+            }
+        }
 
         try
         {
@@ -45,41 +52,66 @@ internal sealed class EfUnitOfWork : IUnitOfWork
         {
             throw new ConflictException("concurrency.stale", "The resource was changed by someone else; reload and try again.");
         }
-        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: UniqueViolation } pg)
+        catch (DbUpdateException ex) when (IsUniqueViolation(ex))
         {
+            var pg = (PostgresException)ex.InnerException!;
             throw new ConflictException("persistence.duplicate", $"A record with the same key already exists ({pg.ConstraintName}).");
         }
 
-        aggregates.ForEach(a => a.ClearDomainEvents());
+        foreach (var aggregate in aggregates)
+        {
+            aggregate.ClearDomainEvents();
+        }
         foreach (var domainEvent in events)
         {
             await PublishAsync(domainEvent, ct);
         }
     }
 
+    private static bool IsUniqueViolation(DbUpdateException ex)
+    {
+        return ex.InnerException is PostgresException pg && pg.SqlState == UniqueViolation;
+    }
+
     private async Task PublishAsync(IDomainEvent domainEvent, CancellationToken ct)
     {
-        var (partnerId, type, payload) = domainEvent switch
+        Guid partnerId;
+        string type;
+        object payload;
+
+        if (domainEvent is OrderStatusChanged orderChanged)
         {
-            OrderStatusChanged e => (e.PartnerId, "order.status_changed", (object)new
+            partnerId = orderChanged.PartnerId;
+            type = "order.status_changed";
+            payload = new
             {
-                orderId = e.OrderId,
-                reference = e.Reference,
-                from = e.From.ToString().ToUpperInvariant(),
-                to = e.To.ToString().ToUpperInvariant(),
-                occurredAt = e.OccurredAt,
-            }),
-            FaultCreditAssessed e => (e.PartnerId, "fault.credit_assessed", new
+                orderId = orderChanged.OrderId,
+                reference = orderChanged.Reference,
+                from = orderChanged.From.ToString().ToUpperInvariant(),
+                to = orderChanged.To.ToString().ToUpperInvariant(),
+                occurredAt = orderChanged.OccurredAt,
+            };
+        }
+        else if (domainEvent is FaultCreditAssessed credit)
+        {
+            partnerId = credit.PartnerId;
+            type = "fault.credit_assessed";
+            payload = new
             {
-                faultId = e.FaultId,
-                reference = e.Reference,
-                amountMinor = e.Amount.MinorUnits,
-                currency = e.Amount.Currency,
-                basis = e.Basis,
-                occurredAt = e.OccurredAt,
-            }),
-            _ => (Guid.Empty, string.Empty, new object()),
-        };
+                faultId = credit.FaultId,
+                reference = credit.Reference,
+                amountMinor = credit.Amount.MinorUnits,
+                currency = credit.Amount.Currency,
+                basis = credit.Basis,
+                occurredAt = credit.OccurredAt,
+            };
+        }
+        else
+        {
+            partnerId = Guid.Empty;
+            type = string.Empty;
+            payload = new object();
+        }
 
         if (partnerId == Guid.Empty)
         {

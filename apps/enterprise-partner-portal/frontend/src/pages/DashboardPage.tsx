@@ -39,7 +39,7 @@ export function DashboardPage() {
         </label>
       </div>
       <ErrorBanner error={error} />
-      {loading && !data && <p className="loading">Loading KPIs…</p>}
+      {loading && !data && <p className="loading">Loading KPIs&hellip;</p>}
       {data && (
         <>
           <section className="grid" aria-label="Key figures">

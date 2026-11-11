@@ -43,6 +43,9 @@ export function normaliseAccountNumber(raw: string): string {
 
 export const maskSortCode = (sortCode: string): string => `**-**-${sortCode.slice(4)}`;
 
+/** A payment method ready to insert, before the default flag is decided. */
+type PendingMethod = Omit<NewPaymentMethod, 'isDefault'>;
+
 export class PaymentMethodsService {
   constructor(
     private readonly db: Db,
@@ -65,46 +68,7 @@ export class PaymentMethodsService {
       throw new BusinessRuleError('payment-method-limit', `An account can hold at most ${MAX_ACTIVE_PAYMENT_METHODS} payment methods`);
     }
 
-    let record: Omit<NewPaymentMethod, 'isDefault'>;
-    if (input.kind === 'CARD') {
-      if (cardExpiryInstant(input.expiryMonth, input.expiryYear) <= now) {
-        throw new BusinessRuleError('card-expired', 'This card has already expired');
-      }
-      const { reusableRef } = await this.gateway.verifyCardToken(input.providerToken);
-      record = {
-        accountId: ctx.accountId,
-        kind: 'CARD',
-        providerRef: reusableRef,
-        holderName: input.holderName,
-        cardBrand: input.cardBrand,
-        last4: input.last4,
-        expiryMonth: input.expiryMonth,
-        expiryYear: input.expiryYear,
-        sortCodeMasked: null,
-        createdBy: ctx.userId
-      };
-    } else {
-      const sortCode = normaliseSortCode(input.sortCode);
-      const accountNumber = normaliseAccountNumber(input.accountNumber);
-      const { mandateRef } = await this.gateway.createMandate({
-        accountId: ctx.accountId,
-        holderName: input.holderName,
-        sortCode,
-        accountNumber
-      });
-      record = {
-        accountId: ctx.accountId,
-        kind: 'DIRECT_DEBIT',
-        providerRef: mandateRef,
-        holderName: input.holderName,
-        cardBrand: null,
-        last4: accountNumber.slice(-4),
-        expiryMonth: null,
-        expiryYear: null,
-        sortCodeMasked: maskSortCode(sortCode),
-        createdBy: ctx.userId
-      };
-    }
+    const record = await this.registerWithProvider(ctx, input, now);
 
     try {
       const created = await this.db.tx(async (tx) => {
@@ -134,6 +98,49 @@ export class PaymentMethodsService {
       await this.revokeQuietly(record.providerRef);
       throw err;
     }
+  }
+
+  /** Creates the instrument at the payment provider and returns the record to store. */
+  private async registerWithProvider(ctx: AuthContext, input: AddPaymentMethodInput, now: Date): Promise<PendingMethod> {
+    if (input.kind === 'CARD') {
+      if (cardExpiryInstant(input.expiryMonth, input.expiryYear) <= now) {
+        throw new BusinessRuleError('card-expired', 'This card has already expired');
+      }
+      const { reusableRef } = await this.gateway.verifyCardToken(input.providerToken);
+      return {
+        accountId: ctx.accountId,
+        kind: 'CARD',
+        providerRef: reusableRef,
+        holderName: input.holderName,
+        cardBrand: input.cardBrand,
+        last4: input.last4,
+        expiryMonth: input.expiryMonth,
+        expiryYear: input.expiryYear,
+        sortCodeMasked: null,
+        createdBy: ctx.userId
+      };
+    }
+
+    const sortCode = normaliseSortCode(input.sortCode);
+    const accountNumber = normaliseAccountNumber(input.accountNumber);
+    const { mandateRef } = await this.gateway.createMandate({
+      accountId: ctx.accountId,
+      holderName: input.holderName,
+      sortCode,
+      accountNumber
+    });
+    return {
+      accountId: ctx.accountId,
+      kind: 'DIRECT_DEBIT',
+      providerRef: mandateRef,
+      holderName: input.holderName,
+      cardBrand: null,
+      last4: accountNumber.slice(-4),
+      expiryMonth: null,
+      expiryYear: null,
+      sortCodeMasked: maskSortCode(sortCode),
+      createdBy: ctx.userId
+    };
   }
 
   async setDefault(ctx: AuthContext, id: string): Promise<PaymentMethodView[]> {

@@ -67,17 +67,23 @@ internal sealed class DomainEventDispatcher : IDomainEventDispatcher
             var handlerType = HandlerTypes.GetOrAdd(domainEvent.GetType(), t => typeof(IDomainEventHandler<>).MakeGenericType(t));
             foreach (var handler in _services.GetServices(handlerType))
             {
-                try
-                {
-                    var task = (Task)handlerType.GetMethod(nameof(IDomainEventHandler<IDomainEvent>.HandleAsync))!
-                        .Invoke(handler, new object[] { domainEvent, cancellationToken })!;
-                    await task;
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    _logger.LogError(ex, "Handler {Handler} failed for {Event}", handler!.GetType().Name, domainEvent.GetType().Name);
-                }
+                await InvokeHandlerAsync(handlerType, handler!, domainEvent, cancellationToken);
             }
+        }
+    }
+
+    /// <summary>Calls HandleAsync on one handler; the event type is only known at runtime, hence reflection.</summary>
+    private async Task InvokeHandlerAsync(Type handlerType, object handler, IDomainEvent domainEvent, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var method = handlerType.GetMethod(nameof(IDomainEventHandler<IDomainEvent>.HandleAsync))!;
+            var task = (Task)method.Invoke(handler, new object[] { domainEvent, cancellationToken })!;
+            await task;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Handler {Handler} failed for {Event}", handler.GetType().Name, domainEvent.GetType().Name);
         }
     }
 }

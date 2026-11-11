@@ -14,9 +14,29 @@ public static class ValidationExtensions
             return;
         }
 
-        var errors = result.Errors
-            .GroupBy(e => ToCamelCase(e.PropertyName))
-            .ToDictionary(g => g.Key, g => g.Select(e => e.ErrorMessage).Distinct().ToArray());
+        // Group messages by camelCase field name, dropping duplicates.
+        var grouped = new Dictionary<string, List<string>>();
+        foreach (var failure in result.Errors)
+        {
+            var field = ToCamelCase(failure.PropertyName);
+            if (!grouped.TryGetValue(field, out var messages))
+            {
+                messages = new List<string>();
+                grouped[field] = messages;
+            }
+
+            if (!messages.Contains(failure.ErrorMessage))
+            {
+                messages.Add(failure.ErrorMessage);
+            }
+        }
+
+        var errors = new Dictionary<string, string[]>();
+        foreach (var entry in grouped)
+        {
+            errors[entry.Key] = entry.Value.ToArray();
+        }
+
         throw new RequestValidationException(errors);
     }
 
@@ -27,7 +47,16 @@ public static class ValidationExtensions
             return "request";
         }
 
-        return string.Join('.', propertyName.Split('.').Select(p => p.Length == 0 ? p : char.ToLowerInvariant(p[0]) + p[1..]));
+        var parts = propertyName.Split('.');
+        for (var i = 0; i < parts.Length; i++)
+        {
+            if (parts[i].Length > 0)
+            {
+                parts[i] = char.ToLowerInvariant(parts[i][0]) + parts[i].Substring(1);
+            }
+        }
+
+        return string.Join('.', parts);
     }
 }
 
@@ -52,8 +81,27 @@ public static class CommonRules
             .Must(m => m is not null && m.Currency is "GBP" or "USD" or "EUR").WithMessage("Currency is not supported.");
 
     public static IRuleBuilderOptions<T, string?> SafeText<T>(this IRuleBuilder<T, string?> rule, int maxLength) =>
-        rule.MaximumLength(maxLength).Must(v => v is null || !v.Any(c => char.IsControl(c) && c is not ('\n' or '\r' or '\t')))
+        rule.MaximumLength(maxLength).Must(v => !HasUnsupportedControlChars(v))
             .WithMessage("Text contains unsupported characters.");
+
+    /// <summary>True when the text has control characters other than newline, carriage return or tab.</summary>
+    private static bool HasUnsupportedControlChars(string? value)
+    {
+        if (value is null)
+        {
+            return false;
+        }
+
+        foreach (var c in value)
+        {
+            if (char.IsControl(c) && c != '\n' && c != '\r' && c != '\t')
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool BeValidPhone(string? value)
     {

@@ -41,10 +41,11 @@ export async function expectAccessible(page: Page, testInfo: TestInfo, options: 
 }
 
 function summarise(violation: Result): string {
-  const targets = violation.nodes
-    .slice(0, 3)
-    .map((node) => node.target.join(' '))
-    .join(' | ');
+  const parts: string[] = [];
+  for (const node of violation.nodes.slice(0, 3)) {
+    parts.push(node.target.join(' '));
+  }
+  const targets = parts.join(' | ');
   return `[${violation.impact}] ${violation.id}: ${violation.help} -> ${targets}`;
 }
 

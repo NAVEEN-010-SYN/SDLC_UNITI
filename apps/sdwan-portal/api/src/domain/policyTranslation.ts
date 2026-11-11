@@ -173,5 +173,7 @@ export function serviceClassFromDscp(dscp: number | undefined): ServiceClass | u
 }
 
 export function defaultPriorityFor(cls: ServiceClass): PolicyPriority {
-  return cls === 'REALTIME' ? 'HIGH' : cls === 'TRANSACTIONAL' ? 'NORMAL' : 'LOW';
+  if (cls === 'REALTIME') return 'HIGH';
+  if (cls === 'TRANSACTIONAL') return 'NORMAL';
+  return 'LOW';
 }

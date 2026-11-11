@@ -117,10 +117,13 @@ final class DnsZoneService
     public function upsertSystemRecord(HostedDomain $domain, string $name, DnsRecordType $type, string $value, int $ttl = 300): void
     {
         $data = new DnsRecordData($name, $type, $value, $ttl);
-        $existing = array_values(array_filter(
-            $this->domains->recordData($domain->id),
-            static fn (DnsRecordData $r) => !($r->name === $name && $r->type === $type),
-        ));
+        $existing = [];
+        foreach ($this->domains->recordData($domain->id) as $other) {
+            if ($other->name === $name && $other->type === $type) {
+                continue;
+            }
+            $existing[] = $other;
+        }
         $data = $this->validator->validate($data, $domain->name, $existing);
 
         $this->mutate($domain, function () use ($domain, $data): void {
@@ -165,25 +168,28 @@ final class DnsZoneService
             $locked = HostedDomain::query()->whereKey($domain->id)->lockForUpdate()->firstOrFail();
 
             $result = $change();
-
-            $locked->zone_serial = ZoneSerializer::nextSerial($locked->zone_serial, CarbonImmutable::instance($this->clock->now()));
-            $locked->save();
-
-            $zoneFile = $this->serializer->serialize(
-                $locked->name,
-                $locked->zone_serial,
-                $this->domains->recordData($locked->id),
-                $this->hosting->nameservers(),
-                $this->defaultTtl,
-            );
-            $this->hosting->publishZone($locked->name, $locked->zone_serial, $zoneFile);
-
-            Log::info('dns.zone_published', ['hostedDomainId' => $locked->id, 'serial' => $locked->zone_serial]);
-
+            $this->bumpAndPublish($locked);
             $domain->zone_serial = $locked->zone_serial;
 
             return $result;
         });
+    }
+
+    private function bumpAndPublish(HostedDomain $locked): void
+    {
+        $locked->zone_serial = ZoneSerializer::nextSerial($locked->zone_serial, CarbonImmutable::instance($this->clock->now()));
+        $locked->save();
+
+        $zoneFile = $this->serializer->serialize(
+            $locked->name,
+            $locked->zone_serial,
+            $this->domains->recordData($locked->id),
+            $this->hosting->nameservers(),
+            $this->defaultTtl,
+        );
+        $this->hosting->publishZone($locked->name, $locked->zone_serial, $zoneFile);
+
+        Log::info('dns.zone_published', ['hostedDomainId' => $locked->id, 'serial' => $locked->zone_serial]);
     }
 
     private function assertCustomerEditable(DnsRecord $record): void

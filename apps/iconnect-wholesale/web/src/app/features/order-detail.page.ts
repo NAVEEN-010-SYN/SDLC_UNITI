@@ -12,8 +12,11 @@ export const ORDER_STAGES = ['SUBMITTED', 'VALIDATED', 'PROVISIONING', 'ACTIVE']
 
 /** Index of the furthest stage reached; terminal side exits keep the last stage reached before them. */
 export function stageReached(order: Pick<OrderDetail, 'status' | 'history'>): number {
-  const reached = [order.status, ...order.history.map((h) => h.to)].map((s) => ORDER_STAGES.indexOf(s));
-  return Math.max(-1, ...reached);
+  let best = ORDER_STAGES.indexOf(order.status);
+  for (const h of order.history) {
+    best = Math.max(best, ORDER_STAGES.indexOf(h.to));
+  }
+  return Math.max(-1, best);
 }
 
 @Component({
@@ -29,18 +32,18 @@ export function stageReached(order: Pick<OrderDetail, 'status' | 'history'>): nu
         }
       </ol>
       <div class="card">
-        <p>{{ o.type | statusLabel }} at UPRN {{ o.uprn }} · {{ o.productCode ?? 'no product' }} ({{ o.careLevel }}) · your ref {{ o.partnerReference }}</p>
-        <p>Requested {{ o.requestedDate | date: 'd MMM y' }} · committed {{ (o.committedDate | date: 'd MMM y') ?? '—' }}
-          @if (o.completedDate) { · completed {{ o.completedDate | date: 'd MMM y' }} }</p>
-        <p>Monthly {{ o.monthlyRentalMinor | money: o.currency }} · one-off {{ o.oneOffChargeMinor | money: o.currency }}
-          @if (o.cancellationChargeMinor) { · cancellation charge {{ o.cancellationChargeMinor | money: o.currency }} }</p>
+        <p>{{ o.type | statusLabel }} at UPRN {{ o.uprn }} &middot; {{ o.productCode ?? 'no product' }} ({{ o.careLevel }}) &middot; your ref {{ o.partnerReference }}</p>
+        <p>Requested {{ o.requestedDate | date: 'd MMM y' }} &middot; committed {{ (o.committedDate | date: 'd MMM y') ?? '\u2014' }}
+          @if (o.completedDate) { &middot; completed {{ o.completedDate | date: 'd MMM y' }} }</p>
+        <p>Monthly {{ o.monthlyRentalMinor | money: o.currency }} &middot; one-off {{ o.oneOffChargeMinor | money: o.currency }}
+          @if (o.cancellationChargeMinor) { &middot; cancellation charge {{ o.cancellationChargeMinor | money: o.currency }} }</p>
         @if (o.failureReason) { <p class="badge FAILED">{{ o.failureReason }}</p> }
         @if (o.holdReason) { <p class="badge AtRisk">On hold: {{ o.holdReason }}</p> }
         @if (o.sla; as sla) {
           <p>Delivery SLA <span class="badge {{ sla.status }}">{{ sla.status | statusLabel }}</span>
             {{ sla.elapsedWorkingHours }} of {{ sla.targetWorkingHours }} working hours
-            @if (sla.dueAt) { · due {{ sla.dueAt | date: 'd MMM y, HH:mm' }} }
-            @if (sla.workingDaysLate > 0) { · {{ sla.workingDaysLate }} working days late }</p>
+            @if (sla.dueAt) { &middot; due {{ sla.dueAt | date: 'd MMM y, HH:mm' }} }
+            @if (sla.workingDaysLate > 0) { &middot; {{ sla.workingDaysLate }} working days late }</p>
         }
       </div>
 

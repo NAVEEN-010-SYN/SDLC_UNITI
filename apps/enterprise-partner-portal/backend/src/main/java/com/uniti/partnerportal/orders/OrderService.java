@@ -21,10 +21,12 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Orders placed on behalf of customers and their provisioning progress. Partners create and may
@@ -62,11 +64,12 @@ public class OrderService {
      * minted here and the order is flagged as a new logo (which earns a commission bonus).
      */
     public PartnerOrder createFromQuote(CreateOrderRequest request, CurrentUser user) {
-        orders.findByQuoteId(request.quoteId()).ifPresent(existing -> {
+        Optional<PartnerOrder> existing = orders.findByQuoteId(request.quoteId());
+        if (existing.isPresent()) {
             throw new PortalException.Conflict("order.duplicate_quote",
-                    "Quote has already been ordered as " + existing.getReference())
-                    .withDetail("orderId", existing.getId().toString());
-        });
+                    "Quote has already been ordered as " + existing.get().getReference())
+                    .withDetail("orderId", existing.get().getId().toString());
+        }
         Quote quote = quotes.claimForOrder(request.quoteId(), user);
         partners.requireTransactingPartner(quote.getPartnerId());
         Instant now = Instant.now(clock);
@@ -84,9 +87,23 @@ public class OrderService {
         order.assignAccount(newLogo ? references.next(ReferenceGenerator.Kind.ACCOUNT)
                 : quote.getCustomerAccountId(), newLogo);
 
-        Map<String, CatalogProduct> products = catalog.findBySkuIn(
-                        quote.getLines().stream().map(QuoteLine::getSku).collect(Collectors.toSet())).stream()
-                .collect(Collectors.toMap(CatalogProduct::getSku, Function.identity()));
+        addSitesFromQuote(order, quote);
+        order.transitionTo(OrderStatus.SUBMITTED, user.subject(), "Created from quote " + quote.getReference(), now);
+        PartnerOrder saved = orders.save(order);
+        log.info("order_submitted orderRef={} quoteRef={} newLogo={}", saved.getReference(), quote.getReference(),
+                newLogo);
+        return saved;
+    }
+
+    private void addSitesFromQuote(PartnerOrder order, Quote quote) {
+        Set<String> skus = new HashSet<>();
+        for (QuoteLine line : quote.getLines()) {
+            skus.add(line.getSku());
+        }
+        Map<String, CatalogProduct> products = new HashMap<>();
+        for (CatalogProduct product : catalog.findBySkuIn(skus)) {
+            products.put(product.getSku(), product);
+        }
         for (QuoteLine line : quote.getLines()) {
             CatalogProduct product = products.get(line.getSku());
             if (product == null) {
@@ -97,11 +114,6 @@ public class OrderService {
                     line.getSitePostcode(), line.getSku(), line.getProductName(), product.getCategory(),
                     line.getQuantity(), line.getNetMrcMinor()));
         }
-        order.transitionTo(OrderStatus.SUBMITTED, user.subject(), "Created from quote " + quote.getReference(), now);
-        PartnerOrder saved = orders.save(order);
-        log.info("order_submitted orderRef={} quoteRef={} newLogo={}", saved.getReference(), quote.getReference(),
-                newLogo);
-        return saved;
     }
 
     @Transactional(readOnly = true)
@@ -163,10 +175,16 @@ public class OrderService {
             throw new PortalException.BusinessRule("order.not_provisioning",
                     "Site progress can only be recorded while the order is provisioning");
         }
-        OrderSite site = order.getSites().stream()
-                .filter(s -> s.getId().equals(siteId))
-                .findFirst()
-                .orElseThrow(() -> new PortalException.NotFound("OrderSite", siteId));
+        OrderSite site = null;
+        for (OrderSite s : order.getSites()) {
+            if (s.getId().equals(siteId)) {
+                site = s;
+                break;
+            }
+        }
+        if (site == null) {
+            throw new PortalException.NotFound("OrderSite", siteId);
+        }
         if (!site.canMoveTo(request.stage())) {
             throw new PortalException.Conflict("order.site_invalid_stage",
                     "Site " + site.getSiteNo() + " cannot move from " + site.getStage() + " to " + request.stage());
@@ -187,8 +205,10 @@ public class OrderService {
         if (blankToNull(request.serviceId()) != null) {
             site.setServiceId(request.serviceId().trim());
         }
-        String detail = "Site " + site.getSiteNo() + " (" + site.getSiteName() + ") -> " + request.stage()
-                + (request.note() == null || request.note().isBlank() ? "" : ": " + request.note());
+        String detail = "Site " + site.getSiteNo() + " (" + site.getSiteName() + ") -> " + request.stage();
+        if (blankToNull(request.note()) != null) {
+            detail = detail + ": " + request.note();
+        }
         order.record(OrderEvent.Type.SITE_UPDATED, actor.subject(), detail, now);
 
         if (order.allSitesLive()) {

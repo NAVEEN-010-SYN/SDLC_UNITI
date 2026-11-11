@@ -155,8 +155,12 @@ public class PartnerService {
         boolean allRequiredVerified = true;
         for (KycDocumentType type : KycDocumentType.values()) {
             Optional<KycDocument> latest = partner.latestDocument(type);
-            KycDocument.Status status = latest.map(KycDocument::getStatus).orElse(null);
-            boolean stale = latest.map(d -> d.isStale(today)).orElse(false);
+            KycDocument.Status status = null;
+            boolean stale = false;
+            if (latest.isPresent()) {
+                status = latest.get().getStatus();
+                stale = latest.get().isStale(today);
+            }
             items.add(new ChecklistItem(type, type.isRequired(), status, stale));
             if (type.isRequired()) {
                 boolean usable = status != null && status != KycDocument.Status.REJECTED && !stale;
@@ -172,11 +176,13 @@ public class PartnerService {
         Partner partner = load(partnerId);
         KycChecklist checklist = buildChecklist(partner);
         if (!checklist.readyForReview()) {
-            List<String> missing = checklist.items().stream()
-                    .filter(i -> i.required()
-                            && (i.status() == null || i.status() == KycDocument.Status.REJECTED || i.stale()))
-                    .map(i -> i.type().name())
-                    .toList();
+            List<String> missing = new ArrayList<>();
+            for (ChecklistItem i : checklist.items()) {
+                boolean unusable = i.status() == null || i.status() == KycDocument.Status.REJECTED || i.stale();
+                if (i.required() && unusable) {
+                    missing.add(i.type().name());
+                }
+            }
             throw (PortalException) new PortalException.BusinessRule("kyc.incomplete",
                     "Required KYC documents are missing, rejected or out of date").withDetail("missing", missing);
         }
@@ -191,10 +197,16 @@ public class PartnerService {
             throw new PortalException.BusinessRule("kyc.not_in_review",
                     "Documents can only be reviewed once the partner has submitted for review");
         }
-        KycDocument document = partner.getDocuments().stream()
-                .filter(d -> d.getId().equals(documentId))
-                .findFirst()
-                .orElseThrow(() -> new PortalException.NotFound("KycDocument", documentId));
+        KycDocument document = null;
+        for (KycDocument d : partner.getDocuments()) {
+            if (d.getId().equals(documentId)) {
+                document = d;
+                break;
+            }
+        }
+        if (document == null) {
+            throw new PortalException.NotFound("KycDocument", documentId);
+        }
         if (document.getUploadedBy().equals(reviewer.subject())) {
             throw new PortalException.Forbidden("Reviewers cannot verify documents they uploaded");
         }

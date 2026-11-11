@@ -75,7 +75,7 @@ public sealed class NewModel : AccountPageModel
     private async Task LoadServicesAsync(CancellationToken ct)
     {
         var services = await Api.GetAsync<IReadOnlyList<ServiceSummaryDto>>(AccountPath("services"), ct);
-        ServiceOptions = services.Select(s => new SelectListItem($"{s.ServiceReference} – {s.Plan.Name}, {s.ServiceAddress.Postcode}", s.Id.ToString())).ToList();
+        ServiceOptions = services.Select(s => new SelectListItem($"{s.ServiceReference} \u2013 {s.Plan.Name}, {s.ServiceAddress.Postcode}", s.Id.ToString())).ToList();
     }
 
     public sealed class TicketInput

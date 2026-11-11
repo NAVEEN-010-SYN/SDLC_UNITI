@@ -113,7 +113,7 @@ struct DeviceRow: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.xxs) {
                 Text(device.name).font(.body)
                 Text([device.ipAddress, device.band?.rawValue, L10n.string("signal.\(device.signalQuality.rawValue)")]
-                    .compactMap { $0 }.joined(separator: " · "))
+                    .compactMap { $0 }.joined(separator: " \u{00B7} "))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -144,7 +144,7 @@ public struct WiFiSettingsView: View {
                 ValidatedField(L10n.string("wifi.passphrase"), text: $viewModel.passphrase,
                                message: viewModel.message(for: "passphrase"), isSecure: true, contentType: .password)
                 if let strength = viewModel.strength {
-                    Meter(fraction: Double(strength.rawValue + 1) / 3, tone: strength == .strong ? .success : strength == .fair ? .warning : .danger)
+                    Meter(fraction: Double(strength.rawValue + 1) / 3, tone: strengthTone(strength))
                 }
                 ValidatedField(L10n.string("wifi.confirmPassphrase"), text: $viewModel.confirmation,
                                message: viewModel.message(for: "confirmation"), isSecure: true, contentType: .password)
@@ -163,6 +163,14 @@ public struct WiFiSettingsView: View {
         .navigationTitle(viewModel.network.ssid)
         .confirmationDialog(L10n.string("wifi.disconnectWarning"), isPresented: $confirmingSave, titleVisibility: .visible) {
             Button(L10n.Common.save) { Task { await viewModel.save() } }
+        }
+    }
+
+    private func strengthTone(_ strength: WiFiCredentialsValidator.Strength) -> Tone {
+        switch strength {
+        case .strong: return .success
+        case .fair: return .warning
+        default: return .danger
         }
     }
 }
@@ -199,15 +207,7 @@ public struct SpeedTestView: View {
                 }
                 if !viewModel.history.isEmpty {
                     Card(title: L10n.string("speedtest.history")) {
-                        ForEach(viewModel.history) { result in
-                            HStack {
-                                Text(dateFormatter.shortDate(result.measuredAt))
-                                Spacer()
-                                Text("\(SpeedFormatter.string(mbps: result.downloadMbps)) / \(SpeedFormatter.string(mbps: result.uploadMbps))")
-                                    .monospacedDigit()
-                            }
-                            .font(.subheadline)
-                        }
+                        ForEach(viewModel.history) { result in historyRow(result) }
                     }
                 }
             }
@@ -216,6 +216,16 @@ public struct SpeedTestView: View {
         .navigationTitle(L10n.string("dashboard.action.speedTest"))
         .task { await viewModel.loadHistory() }
         .onDisappear { viewModel.cancel() }
+    }
+
+    private func historyRow(_ result: SpeedTestResult) -> some View {
+        HStack {
+            Text(dateFormatter.shortDate(result.measuredAt))
+            Spacer()
+            Text("\(SpeedFormatter.string(mbps: result.downloadMbps)) / \(SpeedFormatter.string(mbps: result.uploadMbps))")
+                .monospacedDigit()
+        }
+        .font(.subheadline)
     }
 }
 

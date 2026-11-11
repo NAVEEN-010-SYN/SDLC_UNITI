@@ -83,27 +83,12 @@ public sealed class AvailabilityService
         var earliest = EarliestCompletion(premise, orderType, today, calendar);
 
         var products = await _catalogue.ListProductsAsync(includeWithdrawn: false, ct);
-        var results = products
-            .OrderBy(p => p.DownstreamMbps)
-            .Select(p =>
-            {
-                string? reason = null;
-                if (premise.BuildStatus == PremiseBuildStatus.NotServiceable)
-                {
-                    reason = "Premise is not serviceable.";
-                }
-                else if (p.DownstreamMbps > premise.MaxDownstreamMbps)
-                {
-                    reason = $"Exceeds premise capability of {premise.MaxDownstreamMbps} Mbps.";
-                }
-                else if (hasOpenOrder)
-                {
-                    reason = "An order is already in flight for this premise.";
-                }
-
-                return new AvailableProductDto(CatalogueService.ToDto(p), reason is null, reason);
-            })
-            .ToList();
+        var results = new List<AvailableProductDto>();
+        foreach (var p in products.OrderBy(p => p.DownstreamMbps))
+        {
+            var reason = NotOrderableReason(premise, p.DownstreamMbps, hasOpenOrder);
+            results.Add(new AvailableProductDto(CatalogueService.ToDto(p), reason is null, reason));
+        }
 
         return new AvailabilityResultDto(
             premise.Uprn,
@@ -119,11 +104,35 @@ public sealed class AvailabilityService
             results);
     }
 
+    /// <summary>Null when the product can be ordered at the premise; otherwise the reason it cannot.</summary>
+    private static string? NotOrderableReason(Premise premise, int productDownstreamMbps, bool hasOpenOrder)
+    {
+        if (premise.BuildStatus == PremiseBuildStatus.NotServiceable)
+        {
+            return "Premise is not serviceable.";
+        }
+
+        if (productDownstreamMbps > premise.MaxDownstreamMbps)
+        {
+            return $"Exceeds premise capability of {premise.MaxDownstreamMbps} Mbps.";
+        }
+
+        if (hasOpenOrder)
+        {
+            return "An order is already in flight for this premise.";
+        }
+
+        return null;
+    }
+
     internal DateOnly EarliestCompletion(Premise premise, OrderType type, DateOnly today, WorkingCalendar calendar)
     {
-        var start = premise.BuildStatus == PremiseBuildStatus.PlannedBuild && premise.ReadyForServiceDate is { } rfs && rfs > today
-            ? rfs
-            : today;
+        var start = today;
+        var rfs = premise.ReadyForServiceDate;
+        if (premise.BuildStatus == PremiseBuildStatus.PlannedBuild && rfs.HasValue && rfs.Value > today)
+        {
+            start = rfs.Value;
+        }
 
         var leadTime = _policy.OrderLeadTimeWorkingDays(type);
         if (premise.BuildStatus == PremiseBuildStatus.SurveyRequired)
@@ -159,7 +168,17 @@ internal sealed class NaturalStringComparer : IComparer<string>
 
     private static long? LeadingNumber(string s)
     {
-        var digits = new string(s.TakeWhile(char.IsAsciiDigit).ToArray());
-        return digits.Length is > 0 and < 18 ? long.Parse(digits, System.Globalization.CultureInfo.InvariantCulture) : null;
+        var count = 0;
+        while (count < s.Length && char.IsAsciiDigit(s[count]))
+        {
+            count++;
+        }
+
+        if (count == 0 || count >= 18)
+        {
+            return null;
+        }
+
+        return long.Parse(s.Substring(0, count), System.Globalization.CultureInfo.InvariantCulture);
     }
 }

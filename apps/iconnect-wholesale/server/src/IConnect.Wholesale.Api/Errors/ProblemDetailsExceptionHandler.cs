@@ -1,6 +1,7 @@
 using IConnect.Wholesale.Api.Observability;
 using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace IConnect.Wholesale.Api.Errors;
 
@@ -56,25 +57,14 @@ public static class ProblemDetailsSetup
             ctx.ProblemDetails.Extensions["correlationId"] = CorrelationIdMiddleware.Get(ctx.HttpContext) ?? ctx.HttpContext.TraceIdentifier;
             if (!ctx.ProblemDetails.Extensions.ContainsKey("code"))
             {
-                ctx.ProblemDetails.Extensions["code"] = ctx.ProblemDetails.Status switch
-                {
-                    StatusCodes.Status401Unauthorized => "auth.unauthenticated",
-                    StatusCodes.Status403Forbidden => "auth.forbidden",
-                    StatusCodes.Status404NotFound => "route.not_found",
-                    StatusCodes.Status405MethodNotAllowed => "route.method_not_allowed",
-                    StatusCodes.Status429TooManyRequests => "rate_limit.exceeded",
-                    _ => "http.error",
-                };
+                ctx.ProblemDetails.Extensions["code"] = DefaultCode(ctx.ProblemDetails.Status);
             }
         });
         services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 
         services.Configure<ApiBehaviorOptions>(options => options.InvalidModelStateResponseFactory = context =>
         {
-            var errors = context.ModelState
-                .Where(kv => kv.Value is { Errors.Count: > 0 })
-                .ToDictionary(kv => string.IsNullOrEmpty(kv.Key) ? "body" : kv.Key,
-                    kv => kv.Value!.Errors.Select(e => string.IsNullOrEmpty(e.ErrorMessage) ? "The value is invalid." : e.ErrorMessage).ToArray());
+            var errors = ModelStateErrors(context.ModelState);
             var problem = ProblemMapper.Validation(errors);
             problem.Instance = context.HttpContext.Request.Path;
             problem.Extensions["correlationId"] = CorrelationIdMiddleware.Get(context.HttpContext) ?? context.HttpContext.TraceIdentifier;
@@ -82,5 +72,48 @@ public static class ProblemDetailsSetup
         });
 
         return services;
+    }
+
+    /// <summary>Code for problems raised by the framework itself (no code set by ProblemMapper).</summary>
+    private static string DefaultCode(int? status)
+    {
+        switch (status)
+        {
+            case StatusCodes.Status401Unauthorized:
+                return "auth.unauthenticated";
+            case StatusCodes.Status403Forbidden:
+                return "auth.forbidden";
+            case StatusCodes.Status404NotFound:
+                return "route.not_found";
+            case StatusCodes.Status405MethodNotAllowed:
+                return "route.method_not_allowed";
+            case StatusCodes.Status429TooManyRequests:
+                return "rate_limit.exceeded";
+            default:
+                return "http.error";
+        }
+    }
+
+    private static Dictionary<string, string[]> ModelStateErrors(ModelStateDictionary modelState)
+    {
+        var errors = new Dictionary<string, string[]>();
+        foreach (var kv in modelState)
+        {
+            if (kv.Value is null || kv.Value.Errors.Count == 0)
+            {
+                continue;
+            }
+
+            var messages = new List<string>();
+            foreach (var e in kv.Value.Errors)
+            {
+                messages.Add(string.IsNullOrEmpty(e.ErrorMessage) ? "The value is invalid." : e.ErrorMessage);
+            }
+
+            var key = string.IsNullOrEmpty(kv.Key) ? "body" : kv.Key;
+            errors.Add(key, messages.ToArray());
+        }
+
+        return errors;
     }
 }

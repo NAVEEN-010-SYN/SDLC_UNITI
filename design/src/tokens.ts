@@ -61,8 +61,9 @@ export class TokenError extends Error {
   }
 }
 
-const isGroup = (node: unknown): node is TokenTree =>
-  typeof node === 'object' && node !== null && !Array.isArray(node);
+function isGroup(node: unknown): node is TokenTree {
+  return typeof node === 'object' && node !== null && !Array.isArray(node);
+}
 
 /** Deep-merges token trees; later layers override earlier ones token by token. */
 export function mergeTrees(...trees: TokenTree[]): TokenTree {
@@ -70,8 +71,11 @@ export function mergeTrees(...trees: TokenTree[]): TokenTree {
   for (const tree of trees) {
     for (const [key, value] of Object.entries(tree)) {
       const existing = out[key];
-      const bothGroups = isGroup(existing) && isGroup(value) && !('$value' in value);
-      out[key] = bothGroups ? mergeTrees(existing as TokenTree, value) : value;
+      if (isGroup(existing) && isGroup(value) && !('$value' in value)) {
+        out[key] = mergeTrees(existing, value);
+      } else {
+        out[key] = value;
+      }
     }
   }
   return out;
@@ -95,75 +99,108 @@ export function flatten(tree: TokenTree, inheritedType?: TokenType, prefix: stri
   return out;
 }
 
-function validate(name: string, type: TokenType, value: unknown): TokenValue {
-  const fail = (why: string): never => {
-    throw new TokenError(name, `${why} (got ${JSON.stringify(value)})`);
+function fail(name: string, why: string, value: unknown): never {
+  throw new TokenError(name, `${why} (got ${JSON.stringify(value)})`);
+}
+
+function validateShadow(name: string, value: unknown): Shadow {
+  if (!isGroup(value)) return fail(name, 'shadow must be an object', value);
+  return {
+    color: validate(`${name}.color`, 'color', value.color) as string,
+    offsetX: validate(`${name}.offsetX`, 'dimension', value.offsetX) as string,
+    offsetY: validate(`${name}.offsetY`, 'dimension', value.offsetY) as string,
+    blur: validate(`${name}.blur`, 'dimension', value.blur) as string,
+    spread: validate(`${name}.spread`, 'dimension', value.spread) as string,
   };
+}
+
+function validateTypography(name: string, value: unknown): Typography {
+  if (!isGroup(value)) return fail(name, 'typography must be an object', value);
+  return {
+    fontFamily: validate(`${name}.fontFamily`, 'fontFamily', value.fontFamily) as string[],
+    fontSize: validate(`${name}.fontSize`, 'dimension', value.fontSize) as string,
+    fontWeight: validate(`${name}.fontWeight`, 'fontWeight', value.fontWeight) as number,
+    lineHeight: validate(`${name}.lineHeight`, 'number', value.lineHeight) as number,
+  };
+}
+
+function validateFontFamily(name: string, value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (!Array.isArray(value) || value.length === 0) {
+    return fail(name, 'fontFamily must be a string or non-empty string array', value);
+  }
+  for (const family of value) {
+    if (typeof family !== 'string') return fail(name, 'fontFamily must be a string or non-empty string array', value);
+  }
+  return value as string[];
+}
+
+function isFontWeight(value: unknown): boolean {
+  return typeof value === 'number' && value >= 100 && value <= 900 && value % 100 === 0;
+}
+
+function validate(name: string, type: TokenType, value: unknown): TokenValue {
   switch (type) {
     case 'color':
-      return typeof value === 'string' && HEX.test(value) ? value.toLowerCase() : fail('color must be #rrggbb or #rrggbbaa');
+      if (typeof value === 'string' && HEX.test(value)) return value.toLowerCase();
+      return fail(name, 'color must be #rrggbb or #rrggbbaa', value);
     case 'dimension':
-      return typeof value === 'string' && DIMENSION.test(value) ? value : fail('dimension must be px or rem');
+      if (typeof value === 'string' && DIMENSION.test(value)) return value;
+      return fail(name, 'dimension must be px or rem', value);
     case 'duration':
-      return typeof value === 'string' && DURATION.test(value) ? value : fail('duration must be in ms');
+      if (typeof value === 'string' && DURATION.test(value)) return value;
+      return fail(name, 'duration must be in ms', value);
     case 'fontWeight':
-      return typeof value === 'number' && value >= 100 && value <= 900 && value % 100 === 0
-        ? value
-        : fail('fontWeight must be 100..900 in steps of 100');
+      if (isFontWeight(value)) return value as number;
+      return fail(name, 'fontWeight must be 100..900 in steps of 100', value);
     case 'number':
-      return typeof value === 'number' && Number.isFinite(value) ? value : fail('number expected');
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      return fail(name, 'number expected', value);
     case 'fontFamily':
-      if (typeof value === 'string') return [value];
-      return Array.isArray(value) && value.length > 0 && value.every((f) => typeof f === 'string')
-        ? (value as string[])
-        : fail('fontFamily must be a string or non-empty string array');
-    case 'shadow': {
-      if (!isGroup(value)) return fail('shadow must be an object');
-      return {
-        color: validate(`${name}.color`, 'color', value.color) as string,
-        offsetX: validate(`${name}.offsetX`, 'dimension', value.offsetX) as string,
-        offsetY: validate(`${name}.offsetY`, 'dimension', value.offsetY) as string,
-        blur: validate(`${name}.blur`, 'dimension', value.blur) as string,
-        spread: validate(`${name}.spread`, 'dimension', value.spread) as string,
-      };
-    }
-    case 'typography': {
-      if (!isGroup(value)) return fail('typography must be an object');
-      return {
-        fontFamily: validate(`${name}.fontFamily`, 'fontFamily', value.fontFamily) as string[],
-        fontSize: validate(`${name}.fontSize`, 'dimension', value.fontSize) as string,
-        fontWeight: validate(`${name}.fontWeight`, 'fontWeight', value.fontWeight) as number,
-        lineHeight: validate(`${name}.lineHeight`, 'number', value.lineHeight) as number,
-      };
-    }
+      return validateFontFamily(name, value);
+    case 'shadow':
+      return validateShadow(name, value);
+    case 'typography':
+      return validateTypography(name, value);
     default:
-      return fail(`unsupported type ${String(type)}`);
+      return fail(name, `unsupported type ${String(type)}`, value);
   }
 }
 
-/** Resolves aliases (including inside composite values) and validates every token. */
+/** Follows `{alias}` references (also inside composite values); detects cycles. */
+function deref(raw: Map<string, RawToken>, value: unknown, from: string, chain: string[]): unknown {
+  if (typeof value === 'string') {
+    const match = ALIAS.exec(value);
+    if (!match) return value;
+    const target = match[1];
+    if (chain.includes(target)) {
+      throw new TokenError(from, `alias cycle ${chain.concat(target).join(' -> ')}`);
+    }
+    const hit = raw.get(target);
+    if (!hit) throw new TokenError(from, `unknown alias {${target}}`);
+    return deref(raw, hit.value, target, chain.concat(target));
+  }
+  if (isGroup(value)) {
+    const out: TokenTree = {};
+    for (const key of Object.keys(value)) {
+      out[key] = deref(raw, value[key], from, chain);
+    }
+    return out;
+  }
+  return value;
+}
+
+/** Resolves aliases and validates every token. */
 export function resolve(raw: Map<string, RawToken>): Map<string, Token> {
   const resolved = new Map<string, Token>();
-
-  const deref = (value: unknown, from: string, chain: string[]): unknown => {
-    if (typeof value === 'string') {
-      const match = ALIAS.exec(value);
-      if (!match) return value;
-      const target = match[1];
-      if (chain.includes(target)) throw new TokenError(from, `alias cycle ${[...chain, target].join(' -> ')}`);
-      const hit = raw.get(target);
-      if (!hit) throw new TokenError(from, `unknown alias {${target}}`);
-      return deref(hit.value, target, [...chain, target]);
-    }
-    if (isGroup(value)) {
-      return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, deref(v, from, chain)]));
-    }
-    return value;
-  };
-
   for (const [name, token] of raw) {
-    const value = deref(token.value, name, [name]);
-    resolved.set(name, { path: token.path, type: token.type, description: token.description, value: validate(name, token.type, value) });
+    const value = deref(raw, token.value, name, [name]);
+    resolved.set(name, {
+      path: token.path,
+      type: token.type,
+      description: token.description,
+      value: validate(name, token.type, value),
+    });
   }
   return resolved;
 }
@@ -177,5 +214,5 @@ export interface ThemeSet {
 export function buildThemes(core: TokenTree, light: TokenTree, dark: TokenTree): ThemeSet {
   const lightTokens = resolve(flatten(mergeTrees(core, light)));
   const darkTokens = resolve(flatten(mergeTrees(core, light, dark)));
-  return { light: [...lightTokens.values()], dark: [...darkTokens.values()] };
+  return { light: Array.from(lightTokens.values()), dark: Array.from(darkTokens.values()) };
 }

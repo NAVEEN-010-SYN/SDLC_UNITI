@@ -56,46 +56,10 @@ final class ForwardingRuleValidator
             $destination = isset($rule['destination']) ? trim((string) $rule['destination']) : null;
             $ringSeconds = isset($rule['ring_seconds']) ? (int) $rule['ring_seconds'] : null;
 
-            switch ($type) {
-                case CallForwardingRule::DEST_VOICEMAIL:
-                    $destination = null;
-                    break;
-
-                case CallForwardingRule::DEST_EXTENSION:
-                    if ($destination === null || !in_array($destination, $dialPlan, true)) {
-                        $errors["$prefix.destination"][] = 'Destination extension does not exist on this account.';
-                    } elseif ($destination === $extensionNumber) {
-                        $errors["$prefix.destination"][] = 'An extension cannot forward to itself.';
-                    }
-                    break;
-
-                case CallForwardingRule::DEST_EXTERNAL:
-                    $number = $destination === null ? null : PhoneNumber::tryParse($destination);
-                    if ($number === null) {
-                        $errors["$prefix.destination"][] = 'Destination must be a valid phone number.';
-                    } elseif ($number->isPremiumRate()) {
-                        $errors["$prefix.destination"][] = 'Forwarding to premium-rate numbers is not permitted.';
-                    } elseif (!$number->isNanp() && !$this->allowInternational) {
-                        $errors["$prefix.destination"][] = 'International forwarding is not enabled on this account.';
-                    } else {
-                        $destination = $number->e164;
-                    }
-                    break;
-
-                default:
-                    $errors["$prefix.destination_type"][] = 'Destination type must be EXTENSION, EXTERNAL or VOICEMAIL.';
-            }
+            $destination = $this->checkDestination($type, $destination, $extensionNumber, $dialPlan, $prefix, $errors);
 
             if ($condition === ForwardingCondition::NoAnswer) {
-                if ($ringSeconds === null) {
-                    $errors["$prefix.ring_seconds"][] = 'Ring time is required for NO_ANSWER forwarding.';
-                } elseif ($ringSeconds < $this->noAnswerMinSeconds || $ringSeconds > $this->noAnswerMaxSeconds || $ringSeconds % 5 !== 0) {
-                    $errors["$prefix.ring_seconds"][] = sprintf(
-                        'Ring time must be a multiple of 5 between %d and %d seconds.',
-                        $this->noAnswerMinSeconds,
-                        $this->noAnswerMaxSeconds,
-                    );
-                }
+                $this->checkRingSeconds($ringSeconds, $prefix, $errors);
             } else {
                 $ringSeconds = null;
             }
@@ -115,9 +79,86 @@ final class ForwardingRuleValidator
 
         $this->assertNoLoop($extensionNumber, $normalised, $graph);
 
-        usort($normalised, static fn (array $a, array $b) => $a['condition']->precedence() <=> $b['condition']->precedence());
+        usort($normalised, [self::class, 'compareByPrecedence']);
 
         return $normalised;
+    }
+
+    /**
+     * @param array{condition: ForwardingCondition} $a
+     * @param array{condition: ForwardingCondition} $b
+     */
+    public static function compareByPrecedence(array $a, array $b): int
+    {
+        return $a['condition']->precedence() <=> $b['condition']->precedence();
+    }
+
+    /**
+     * Returns the normalised destination; adds field errors on failure.
+     *
+     * @param list<string>                $dialPlan
+     * @param array<string, list<string>> $errors
+     */
+    private function checkDestination(
+        string $type,
+        ?string $destination,
+        string $extensionNumber,
+        array $dialPlan,
+        string $prefix,
+        array &$errors,
+    ): ?string {
+        if ($type === CallForwardingRule::DEST_VOICEMAIL) {
+            return null;
+        }
+
+        if ($type === CallForwardingRule::DEST_EXTENSION) {
+            if ($destination === null || !in_array($destination, $dialPlan, true)) {
+                $errors["$prefix.destination"][] = 'Destination extension does not exist on this account.';
+            } elseif ($destination === $extensionNumber) {
+                $errors["$prefix.destination"][] = 'An extension cannot forward to itself.';
+            }
+
+            return $destination;
+        }
+
+        if ($type === CallForwardingRule::DEST_EXTERNAL) {
+            $number = $destination === null ? null : PhoneNumber::tryParse($destination);
+            if ($number === null) {
+                $errors["$prefix.destination"][] = 'Destination must be a valid phone number.';
+            } elseif ($number->isPremiumRate()) {
+                $errors["$prefix.destination"][] = 'Forwarding to premium-rate numbers is not permitted.';
+            } elseif (!$number->isNanp() && !$this->allowInternational) {
+                $errors["$prefix.destination"][] = 'International forwarding is not enabled on this account.';
+            } else {
+                return $number->e164;
+            }
+
+            return $destination;
+        }
+
+        $errors["$prefix.destination_type"][] = 'Destination type must be EXTENSION, EXTERNAL or VOICEMAIL.';
+
+        return $destination;
+    }
+
+    /**
+     * @param array<string, list<string>> $errors
+     */
+    private function checkRingSeconds(?int $ringSeconds, string $prefix, array &$errors): void
+    {
+        if ($ringSeconds === null) {
+            $errors["$prefix.ring_seconds"][] = 'Ring time is required for NO_ANSWER forwarding.';
+            return;
+        }
+
+        $inRange = $ringSeconds >= $this->noAnswerMinSeconds && $ringSeconds <= $this->noAnswerMaxSeconds;
+        if (!$inRange || $ringSeconds % 5 !== 0) {
+            $errors["$prefix.ring_seconds"][] = sprintf(
+                'Ring time must be a multiple of 5 between %d and %d seconds.',
+                $this->noAnswerMinSeconds,
+                $this->noAnswerMaxSeconds,
+            );
+        }
     }
 
     /**
@@ -149,7 +190,9 @@ final class ForwardingRuleValidator
     {
         foreach ($graph[$node] ?? [] as $next) {
             if (in_array($next, $path, true)) {
-                $cycle = [...array_slice($path, (int) array_search($next, $path, true)), $next];
+                $start = (int) array_search($next, $path, true);
+                $cycle = array_slice($path, $start);
+                $cycle[] = $next;
                 throw new BusinessRuleException(
                     'These forwarding rules would create a loop: ' . implode(' -> ', $cycle) . '.',
                     'VOICE_FORWARDING_LOOP',
@@ -157,7 +200,8 @@ final class ForwardingRuleValidator
                 );
             }
 
-            $nextPath = [...$path, $next];
+            $nextPath = $path;
+            $nextPath[] = $next;
             if (count($nextPath) - 1 > $this->maxChainDepth) {
                 throw new BusinessRuleException(
                     sprintf('Forwarding chains may not exceed %d hops.', $this->maxChainDepth),

@@ -2,9 +2,11 @@ package com.uniti.qa.pages.uconnect;
 
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 
 /**
  * Uconnect dashboard: account summary card, active services and quick links.
@@ -46,13 +48,21 @@ public final class DashboardPage extends BasePage {
     }
 
     public int activeServiceCount() {
-        return (int) driver.findElements(SERVICE_TILES).stream()
-                .filter(tile -> "ACTIVE".equals(tile.getAttribute("data-status")))
-                .count();
+        int count = 0;
+        for (WebElement tile : driver.findElements(SERVICE_TILES)) {
+            if ("ACTIVE".equals(tile.getAttribute("data-status"))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     public List<String> serviceIds() {
-        return driver.findElements(SERVICE_TILES).stream().map(tile -> tile.getAttribute("data-service-id")).toList();
+        List<String> ids = new ArrayList<>();
+        for (WebElement tile : driver.findElements(SERVICE_TILES)) {
+            ids.add(tile.getAttribute("data-service-id"));
+        }
+        return ids;
     }
 
     public int openTicketCount() {
@@ -70,7 +80,11 @@ public final class DashboardPage extends BasePage {
     }
 
     public List<String> primaryNavItems() {
-        return waits.visible(NAV).findElements(By.cssSelector("a")).stream().map(a -> a.getText().trim()).toList();
+        List<String> items = new ArrayList<>();
+        for (WebElement link : waits.visible(NAV).findElements(By.cssSelector("a"))) {
+            items.add(link.getText().trim());
+        }
+        return items;
     }
 
     public ServicesPage openService(String serviceId) {

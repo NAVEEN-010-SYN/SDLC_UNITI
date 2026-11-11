@@ -142,11 +142,12 @@ final class MailboxService
         $mailbox = $this->mailboxes->getForAccount($accountId, $mailboxId);
         $address = $mailbox->address();
 
-        $referencingAliases = $mailbox->emailDomain->aliases()
-            ->get()
-            ->filter(static fn ($alias) => in_array($address, $alias->destinations, true))
-            ->pluck('local_part')
-            ->all();
+        $referencingAliases = [];
+        foreach ($mailbox->emailDomain->aliases()->get() as $alias) {
+            if (in_array($address, $alias->destinations, true)) {
+                $referencingAliases[] = $alias->local_part;
+            }
+        }
         if ($referencingAliases !== []) {
             throw new BusinessRuleException(
                 'The mailbox is a destination of aliases: ' . implode(', ', $referencingAliases) . '.',

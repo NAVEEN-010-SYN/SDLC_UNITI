@@ -84,10 +84,18 @@ export class ContentfulSyncClient {
         throw new ContentfulError(`Contentful sync failed with HTTP ${response.status}`, response.status);
       }
 
-      const resetSeconds = Number(response.headers.get('X-Contentful-RateLimit-Reset'));
-      const delayMs = Number.isFinite(resetSeconds) && resetSeconds > 0 ? resetSeconds * 1000 : 500 * 2 ** (attempt - 1);
+      const delayMs = retryDelayMs(response, attempt);
       this.logger.warn('contentful.retry', { status: response.status, attempt, delayMs });
       await this.sleep(delayMs);
     }
   }
+}
+
+/** Honour the rate-limit reset header, otherwise back off exponentially. */
+function retryDelayMs(response: Response, attempt: number): number {
+  const resetSeconds = Number(response.headers.get('X-Contentful-RateLimit-Reset'));
+  if (Number.isFinite(resetSeconds) && resetSeconds > 0) {
+    return resetSeconds * 1000;
+  }
+  return 500 * 2 ** (attempt - 1);
 }

@@ -55,7 +55,7 @@ public static class DependencyInjection
     private static void RegisterEventHandlers(IServiceCollection services)
     {
         var handlerTypes = typeof(DependencyInjection).Assembly.GetTypes()
-            .Where(t => t is { IsClass: true, IsAbstract: false });
+            .Where(t => t.IsClass && !t.IsAbstract);
 
         foreach (var type in handlerTypes)
         {

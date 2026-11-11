@@ -7,7 +7,7 @@ namespace Uconnect.Api.Http;
 /// Accepts the caller's <c>X-Correlation-Id</c> (or creates one), echoes it on the response, opens a
 /// logging scope so every structured log line carries it, and exposes it to outbound HTTP clients.
 /// </summary>
-public sealed partial class CorrelationIdMiddleware
+public sealed class CorrelationIdMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<CorrelationIdMiddleware> _logger;
@@ -38,8 +38,7 @@ public sealed partial class CorrelationIdMiddleware
     }
 
     /// <summary>Only short, printable ids are propagated, so a caller cannot inject content into logs or headers.</summary>
-    internal static bool IsAcceptable(string? value) => !string.IsNullOrEmpty(value) && value.Length <= 64 && SafeId().IsMatch(value);
+    internal static bool IsAcceptable(string? value) => !string.IsNullOrEmpty(value) && value.Length <= 64 && SafeIdRegex.IsMatch(value);
 
-    [GeneratedRegex("^[A-Za-z0-9._-]+$")]
-    private static partial Regex SafeId();
+    private static readonly Regex SafeIdRegex = new("^[A-Za-z0-9._-]+$");
 }

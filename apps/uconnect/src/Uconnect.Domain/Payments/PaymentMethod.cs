@@ -118,8 +118,8 @@ public sealed class PaymentMethod : AggregateRoot
     }
 
     public string Masked => Type == PaymentMethodType.Card
-        ? $"{DisplayLabel} •••• {Last4} ({ExpiryMonth:00}/{ExpiryYear % 100:00})"
-        : $"{DisplayLabel} Direct Debit •••• {Last4}";
+        ? $"{DisplayLabel} \u2022\u2022\u2022\u2022 {Last4} ({ExpiryMonth:00}/{ExpiryYear % 100:00})"
+        : $"{DisplayLabel} Direct Debit \u2022\u2022\u2022\u2022 {Last4}";
 }
 
 /// <summary>

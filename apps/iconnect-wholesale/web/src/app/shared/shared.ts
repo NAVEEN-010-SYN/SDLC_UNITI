@@ -1,18 +1,19 @@
 import { Component, EventEmitter, Input, Output, Pipe, PipeTransform } from '@angular/core';
 import { ApiProblem } from '../core/api-problem';
 
-/** Formats integer minor units with their ISO currency, e.g. 2499 GBP -> "£24.99". Never goes through floating maths for totals. */
+/** Formats integer minor units with their ISO currency, e.g. 2499 GBP -> "(pound)24.99". Never goes through floating maths for totals. */
 @Pipe({ name: 'money', standalone: true })
 export class MoneyPipe implements PipeTransform {
   transform(minor: number | null | undefined, currency = 'GBP'): string {
     if (minor === null || minor === undefined) {
-      return '—';
+      return '\u2014';
     }
     const sign = minor < 0 ? '-' : '';
     const abs = Math.abs(minor);
     const major = Math.trunc(abs / 100).toLocaleString('en-GB');
     const pence = String(abs % 100).padStart(2, '0');
-    const symbol = ({ GBP: '£', EUR: '€', USD: '$' } as Record<string, string>)[currency];
+    const symbols: Record<string, string> = { GBP: '\u00A3', EUR: '\u20AC', USD: '$' };
+    const symbol = symbols[currency];
     return symbol ? `${sign}${symbol}${major}.${pence}` : `${sign}${major}.${pence} ${currency}`;
   }
 }
@@ -51,7 +52,14 @@ export class ProblemComponent {
   @Input() problem: ApiProblem | null = null;
 
   get fieldMessages(): string[] {
-    return Object.entries(this.problem?.fieldErrors ?? {}).flatMap(([field, msgs]) => msgs.map((m) => `${field}: ${m}`));
+    const result: string[] = [];
+    const errors = this.problem?.fieldErrors ?? {};
+    for (const [field, msgs] of Object.entries(errors)) {
+      for (const m of msgs) {
+        result.push(`${field}: ${m}`);
+      }
+    }
+    return result;
   }
 }
 
@@ -61,7 +69,7 @@ export class ProblemComponent {
   template: `
     <div class="row pager">
       <button class="secondary" [disabled]="page <= 1" (click)="pageChange.emit(page - 1)">Previous</button>
-      <span class="muted">Page {{ page }} of {{ pages }} · {{ total }} items</span>
+      <span class="muted">Page {{ page }} of {{ pages }} &middot; {{ total }} items</span>
       <button class="secondary" [disabled]="page >= pages" (click)="pageChange.emit(page + 1)">Next</button>
     </div>
   `,

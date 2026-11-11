@@ -48,11 +48,19 @@ const SEVERITY_RANK = { CRITICAL: 0, WARNING: 1, INFO: 2 } as const;
 
 /** Unread critical items first (e.g. outages), then newest first. */
 export function sortNotifications(items: AppNotification[]): AppNotification[] {
-  return [...items].sort((a, b) => {
-    const aUrgent = !a.readAt && a.severity === 'CRITICAL' ? 0 : 1;
-    const bUrgent = !b.readAt && b.severity === 'CRITICAL' ? 0 : 1;
-    return aUrgent - bUrgent || SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || b.createdAt.localeCompare(a.createdAt);
-  });
+  return [...items].sort(compareNotifications);
+}
+
+function urgency(n: AppNotification): number {
+  return !n.readAt && n.severity === 'CRITICAL' ? 0 : 1;
+}
+
+function compareNotifications(a: AppNotification, b: AppNotification): number {
+  const byUrgency = urgency(a) - urgency(b);
+  if (byUrgency !== 0) return byUrgency;
+  const bySeverity = SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
+  if (bySeverity !== 0) return bySeverity;
+  return b.createdAt.localeCompare(a.createdAt);
 }
 
 /** Only in-shell relative links are followed, never arbitrary URLs from payloads. */

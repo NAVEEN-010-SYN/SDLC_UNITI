@@ -40,7 +40,13 @@ export class AuthService {
     return t ? decodeJwt(t) : null;
   });
   readonly session = this.sessionState.asReadonly();
-  readonly roles = computed<Role[]>(() => this.sessionState()?.roles ?? ((this.claims()?.roles ?? []) as Role[]));
+  /** Roles from /me when loaded, otherwise from the token claims. */
+  readonly roles = computed<Role[]>(() => {
+    const session = this.sessionState();
+    if (session) return session.roles;
+    const claimed = this.claims()?.roles ?? [];
+    return claimed as Role[];
+  });
   readonly isAdmin = computed(() => this.roles().includes('BUSINESS_ADMIN'));
 
   accessToken(): string | null {
@@ -66,14 +72,22 @@ export class AuthService {
   loadSession(): Promise<Me | null> {
     if (!this.isAuthenticated()) return Promise.resolve(null);
     if (this.sessionState()) return Promise.resolve(this.sessionState());
-    this.sessionLoad ??= firstValueFrom(this.http.get<Me>(`${environment.apiBaseUrl}/me`))
-      .then((me) => {
-        this.sessionState.set(me);
-        return me;
-      })
-      .catch(() => null)
-      .finally(() => (this.sessionLoad = null));
+    if (!this.sessionLoad) {
+      this.sessionLoad = this.fetchSession();
+    }
     return this.sessionLoad;
+  }
+
+  private async fetchSession(): Promise<Me | null> {
+    try {
+      const me = await firstValueFrom(this.http.get<Me>(`${environment.apiBaseUrl}/me`));
+      this.sessionState.set(me);
+      return me;
+    } catch {
+      return null;
+    } finally {
+      this.sessionLoad = null;
+    }
   }
 
   async login(returnUrl = '/'): Promise<void> {

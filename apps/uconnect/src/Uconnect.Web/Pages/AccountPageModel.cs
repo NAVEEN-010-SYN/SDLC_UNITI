@@ -97,7 +97,7 @@ public static class Display
             return "-";
         }
 
-        var symbol = money.Currency switch { "GBP" => "£", "EUR" => "€", "USD" => "$", _ => money.Currency + " " };
+        var symbol = money.Currency switch { "GBP" => "\u00A3", "EUR" => "\u20AC", "USD" => "$", _ => money.Currency + " " };
         var major = Math.Abs(money.AmountMinor) / 100m;
         return (money.AmountMinor < 0 ? "-" : string.Empty) + symbol + major.ToString("#,##0.00", UkCulture);
     }
@@ -107,18 +107,44 @@ public static class Display
     public static string When(DateTimeOffset? instant) =>
         instant is null ? "-" : instant.Value.ToUniversalTime().ToString("d MMM yyyy HH:mm 'UTC'", UkCulture);
 
-    public static string Bytes(long bytes) => bytes switch
+    public static string Bytes(long bytes)
     {
-        >= 1_000_000_000_000 => $"{bytes / 1_000_000_000_000d:0.00} TB",
-        >= 1_000_000_000 => $"{bytes / 1_000_000_000d:0.0} GB",
-        _ => $"{bytes / 1_000_000d:0} MB",
-    };
+        if (bytes >= 1_000_000_000_000)
+        {
+            return $"{bytes / 1_000_000_000_000d:0.00} TB";
+        }
+
+        if (bytes >= 1_000_000_000)
+        {
+            return $"{bytes / 1_000_000_000d:0.0} GB";
+        }
+
+        return $"{bytes / 1_000_000d:0} MB";
+    }
 
     /// <summary>CSS modifier for a status badge: green for done, amber for in-flight, red for problems.</summary>
-    public static string Tone(string status) => status switch
+    public static string Tone(string status)
     {
-        "Paid" or "Active" or "Completed" or "Resolved" or "Succeeded" or "Confirmed" or "Closed" => "ok",
-        "Overdue" or "Failed" or "Suspended" or "Critical" or "Major" or "Missed" or "Cancelled" => "bad",
-        _ => "info",
-    };
+        switch (status)
+        {
+            case "Paid":
+            case "Active":
+            case "Completed":
+            case "Resolved":
+            case "Succeeded":
+            case "Confirmed":
+            case "Closed":
+                return "ok";
+            case "Overdue":
+            case "Failed":
+            case "Suspended":
+            case "Critical":
+            case "Major":
+            case "Missed":
+            case "Cancelled":
+                return "bad";
+            default:
+                return "info";
+        }
+    }
 }

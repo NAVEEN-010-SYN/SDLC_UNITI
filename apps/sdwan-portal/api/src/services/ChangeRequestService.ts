@@ -10,9 +10,7 @@ import {
   evaluateApprovals,
   outstandingRequirements,
 } from '../domain/approvalRules';
-import { hasBlockingFindings, LintFinding, lintFirewallRules } from '../domain/firewallLint';
-import { checkScheduleInWindow } from '../domain/maintenanceWindows';
-import { validatePolicySet } from '../domain/policyTranslation';
+import { LintFinding, lintFirewallRules } from '../domain/firewallLint';
 import type {
   ChangeExecutionResult,
   ChangePayload,
@@ -29,6 +27,7 @@ import type { ChangeRequestRepository, MaintenanceWindowRepository } from '../re
 import { ConcurrentModificationError, PageRequest } from '../repositories/InMemoryRepository';
 import type { CreateChangeRequestInput } from '../validation/schemas';
 import type { BackupService } from './BackupService';
+import { assertScheduleAllowed, validateChangePayload } from './changeRequestValidation';
 import type { InventoryService, ResolvedEdge } from './InventoryService';
 
 export interface ChangeRequestView extends ChangeRequest {
@@ -42,18 +41,11 @@ export interface ChangeListFilter extends PageRequest {
   type?: ChangeType;
 }
 
+// Payload validation lives in changeRequestValidation; compareVersions is re-exported for existing imports.
+export { compareVersions } from './changeRequestValidation';
+
 /** Payload types that rewrite configuration and therefore get a pre-change snapshot. */
 const CONFIG_MUTATING: ReadonlySet<ChangeType> = new Set(['POLICY_UPDATE', 'FIREWALL_UPDATE', 'CONFIG_ROLLBACK', 'SOFTWARE_UPGRADE']);
-
-export function compareVersions(a: string, b: string): number {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return Math.sign(d);
-  }
-  return 0;
-}
 
 /**
  * Change request lifecycle: risk-scored creation, submission, multi-party approval,
@@ -85,7 +77,7 @@ export class ChangeRequestService {
 
   async create(principal: Principal, accountId: string, input: CreateChangeRequestInput): Promise<ChangeRequestView> {
     const edges = await this.inventory.resolveEdges(accountId, input.edgeIds);
-    const lintFindings = await this.validatePayload(accountId, input.payload, edges);
+    const lintFindings = await validateChangePayload(this.backups, accountId, input.payload, edges);
     const currentItemCount = await this.currentItemCount(input.payload, edges[0]);
     const risk = assessRisk({
       type: input.payload.type,
@@ -164,14 +156,7 @@ export class ChangeRequestService {
       this.assertTransition(cr, 'SCHEDULED');
       const nowIso = this.now().toISOString();
       const policy = approvalPolicyFor(cr.risk, cr.emergency);
-      if (window) {
-        const check = checkScheduleInWindow(window, input.scheduledFor, nowIso);
-        if (!check.ok) throw new BusinessRuleProblem('maintenance-window', check.reason ?? 'outside maintenance window');
-      } else if (policy.requiresMaintenanceWindow) {
-        throw new BusinessRuleProblem('maintenance-window', `${cr.risk} risk changes must be scheduled inside a maintenance window`);
-      } else if (input.scheduledFor < nowIso) {
-        throw new BusinessRuleProblem('schedule', 'scheduled time is in the past');
-      }
+      assertScheduleAllowed(window, policy, cr.risk, input.scheduledFor, nowIso);
       cr.maintenanceWindowId = window?.id;
       cr.scheduledFor = new Date(input.scheduledFor).toISOString();
       this.transition(cr, 'SCHEDULED', principal.userId, window ? `window ${window.name}` : undefined);
@@ -219,13 +204,13 @@ export class ChangeRequestService {
     }
 
     const failed = cr.results.find((r) => !r.ok);
-    const skipped = cr.edgeIds.length - cr.results.length;
-    this.transition(
-      cr,
-      failed ? 'FAILED' : 'COMPLETED',
-      'system',
-      failed ? `failed on ${failed.edgeId}${skipped ? `; ${skipped} edge(s) skipped` : ''}` : undefined,
-    );
+    if (failed) {
+      const skipped = cr.edgeIds.length - cr.results.length;
+      const skippedNote = skipped ? `; ${skipped} edge(s) skipped` : '';
+      this.transition(cr, 'FAILED', 'system', `failed on ${failed.edgeId}${skippedNote}`);
+    } else {
+      this.transition(cr, 'COMPLETED', 'system');
+    }
     await this.save(cr, version);
     this.inventory.invalidate(cr.accountId);
     this.logger.info('change request executed', { changeRequestId: cr.id, status: cr.status, edges: cr.results.length });
@@ -272,43 +257,6 @@ export class ChangeRequestService {
         return provider.upgradeEdge(ctx, vendorId, p.targetVersion);
       case 'EDGE_REBOOT':
         return provider.rebootEdge(ctx, vendorId);
-    }
-  }
-
-  private async validatePayload(accountId: string, payload: CreateChangeRequestInput['payload'], edges: ResolvedEdge[]): Promise<LintFinding[] | undefined> {
-    switch (payload.type) {
-      case 'FIREWALL_UPDATE': {
-        const findings = lintFirewallRules(payload.rules);
-        if (hasBlockingFindings(findings)) {
-          throw new BusinessRuleProblem('firewall-lint', 'The rule set has blocking lint errors', {
-            findings: findings.filter((f) => f.severity === 'ERROR'),
-          });
-        }
-        return findings;
-      }
-      case 'POLICY_UPDATE': {
-        const errors = validatePolicySet(payload.policies).filter((i) => i.severity === 'ERROR');
-        if (errors.length) throw new BusinessRuleProblem('policy-invalid', 'The policy set is invalid', { issues: errors });
-        return undefined;
-      }
-      case 'CONFIG_ROLLBACK': {
-        const backup = await this.backups.get(accountId, payload.backupId);
-        if (backup.edgeId !== edges[0].edge.id) {
-          throw new BusinessRuleProblem('backup-edge-mismatch', `Backup ${backup.id} was taken from edge ${backup.edgeId}`);
-        }
-        return undefined;
-      }
-      case 'SOFTWARE_UPGRADE': {
-        const notNewer = edges.filter((e) => compareVersions(payload.targetVersion, e.edge.softwareVersion) <= 0);
-        if (notNewer.length) {
-          throw new BusinessRuleProblem('upgrade-version', `Target ${payload.targetVersion} is not newer than the running version`, {
-            edges: notNewer.map((e) => ({ edgeId: e.edge.id, running: e.edge.softwareVersion })),
-          });
-        }
-        return undefined;
-      }
-      case 'EDGE_REBOOT':
-        return undefined;
     }
   }
 

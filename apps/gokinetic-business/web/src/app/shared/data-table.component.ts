@@ -37,11 +37,11 @@ export function pageCount(total: number, pageSize: number): number {
   return Math.max(1, Math.ceil(total / pageSize));
 }
 
-/** "21–40 of 132" for the current page window. */
+/** "21-40 of 132" for the current page window. */
 export function rangeLabel(page: number, pageSize: number, total: number): string {
   if (total === 0) return '0 results';
   const start = (page - 1) * pageSize + 1;
-  return `${start}–${Math.min(page * pageSize, total)} of ${total}`;
+  return `${start}\u2013${Math.min(page * pageSize, total)} of ${total}`;
 }
 
 @Component({
@@ -69,13 +69,13 @@ export function rangeLabel(page: number, pageSize: number, total: number): strin
                   @if (templates()[col.key]; as tpl) {
                     <ng-container *ngTemplateOutlet="tpl; context: { $implicit: row }" />
                   } @else {
-                    {{ col.value ? col.value(row) ?? '—' : '' }}
+                    {{ col.value ? col.value(row) ?? '\u2014' : '' }}
                   }
                 </td>
               }
             </tr>
           } @empty {
-            <tr><td class="empty" [attr.colspan]="columns().length">{{ loading() ? 'Loading…' : emptyText() }}</td></tr>
+            <tr><td class="empty" [attr.colspan]="columns().length">{{ loading() ? 'Loading\u2026' : emptyText() }}</td></tr>
           }
         </tbody>
       </table>
@@ -111,7 +111,13 @@ export class DataTableComponent<T> {
   readonly rowClick = output<T>();
 
   private readonly cells = contentChildren(CellDirective);
-  readonly templates = computed(() => Object.fromEntries(this.cells().map((c) => [c.key(), c.template])) as Record<string, TemplateRef<unknown>>);
+  readonly templates = computed(() => {
+    const byKey: Record<string, TemplateRef<unknown>> = {};
+    for (const cell of this.cells()) {
+      byKey[cell.key()] = cell.template;
+    }
+    return byKey;
+  });
   readonly pages = computed(() => pageCount(this.total(), this.pageSize()));
   readonly range = computed(() => rangeLabel(this.page(), this.pageSize(), this.total()));
   readonly pageSizes = PAGE_SIZES;

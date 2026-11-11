@@ -39,10 +39,25 @@ final class IncidentFilter
             $selected[] = $incident;
         }
 
-        usort($selected, static fn (array $a, array $b) => [self::SEVERITY_RANK[$b['severity']], $a['planned'], $b['startsAt']]
-            <=> [self::SEVERITY_RANK[$a['severity']], $b['planned'], $a['startsAt']]);
+        usort($selected, [self::class, 'compare']);
 
         return $selected;
+    }
+
+    /** Most severe first, then unplanned before planned, then newest first. */
+    public static function compare(array $a, array $b): int
+    {
+        $bySeverity = self::SEVERITY_RANK[$b['severity']] <=> self::SEVERITY_RANK[$a['severity']];
+        if ($bySeverity !== 0) {
+            return $bySeverity;
+        }
+
+        $byPlanned = $a['planned'] <=> $b['planned'];
+        if ($byPlanned !== 0) {
+            return $byPlanned;
+        }
+
+        return $b['startsAt'] <=> $a['startsAt'];
     }
 
     /**
@@ -78,13 +93,21 @@ final class IncidentFilter
             return null;
         }
 
-        $url = isset($raw['url']) && is_string($raw['url']) && str_starts_with($raw['url'], 'https://') ? $raw['url'] : null;
+        $url = null;
+        if (isset($raw['url']) && is_string($raw['url']) && str_starts_with($raw['url'], 'https://')) {
+            $url = $raw['url'];
+        }
+
+        $regions = [];
+        foreach ((array) ($raw['regions'] ?? []) as $region) {
+            $regions[] = strtoupper((string) $region);
+        }
 
         return [
             'id' => (string) $raw['id'],
             'title' => trim((string) $raw['title']),
             'severity' => $severity,
-            'regions' => array_values(array_map(static fn ($r) => strtoupper((string) $r), (array) ($raw['regions'] ?? []))),
+            'regions' => $regions,
             'startsAt' => $startsAt,
             'endsAt' => isset($raw['endsAt']) ? self::date($raw['endsAt']) : null,
             'url' => $url,

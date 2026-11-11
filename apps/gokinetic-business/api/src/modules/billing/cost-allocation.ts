@@ -86,6 +86,76 @@ export function allocateLine(
   return [{ lineId: line.id, costCentreId: UNALLOCATED, amountMinor: line.amountMinor, source: 'UNALLOCATED' }];
 }
 
+interface CostCentreTotal {
+  subtotal: number;
+  lineIds: Set<string>;
+}
+
+function groupSplitsBySite(rules: SiteSplitRule[]): Map<string, SiteSplitRule[]> {
+  const splitsBySite = new Map<string, SiteSplitRule[]>();
+  for (const rule of rules) {
+    const list = splitsBySite.get(rule.siteId) ?? [];
+    list.push(rule);
+    splitsBySite.set(rule.siteId, list);
+  }
+  return splitsBySite;
+}
+
+function totalsByCostCentre(allocated: AllocatedLine[]): Map<string, CostCentreTotal> {
+  const totals = new Map<string, CostCentreTotal>();
+  for (const a of allocated) {
+    const t = totals.get(a.costCentreId) ?? { subtotal: 0, lineIds: new Set<string>() };
+    t.subtotal += a.amountMinor;
+    t.lineIds.add(a.lineId);
+    totals.set(a.costCentreId, t);
+  }
+  return totals;
+}
+
+/** Alphabetical order, with UNALLOCATED always last. */
+function compareCostCentreKeys(a: string, b: string): number {
+  if (a === UNALLOCATED) return 1;
+  if (b === UNALLOCATED) return -1;
+  return a.localeCompare(b);
+}
+
+/** Splits the invoice tax across cost centres in proportion to their (non-negative) subtotals. */
+function apportionTax(taxMinor: number, currency: CurrencyCode, subtotals: number[]): number[] {
+  const weights = subtotals.map((s) => Math.max(0, s));
+  const hasWeight = weights.some((w) => w > 0);
+  if (!hasWeight || taxMinor === 0) return subtotals.map(() => 0);
+  return allocateByWeights(money(taxMinor, currency), weights).map((m) => m.amountMinor);
+}
+
+function toAllocation(
+  key: string,
+  cc: CostCentre | undefined,
+  total: CostCentreTotal,
+  taxMinor: number,
+  invoiceSubtotalMinor: number
+): CostCentreAllocation {
+  const subtotalMinor = total.subtotal;
+  const totalMinor = subtotalMinor + taxMinor;
+  const budgetMinor = cc?.monthlyBudgetMinor ?? null;
+  const overBudgetMinor = budgetMinor === null ? 0 : Math.max(0, totalMinor - budgetMinor);
+  let shareBps = 0;
+  if (invoiceSubtotalMinor !== 0) {
+    shareBps = Math.round((subtotalMinor * FULL_SHARE_BPS) / invoiceSubtotalMinor);
+  }
+  return {
+    costCentreId: key,
+    code: cc?.code ?? UNALLOCATED,
+    name: cc?.name ?? 'Unallocated',
+    subtotalMinor,
+    taxMinor,
+    totalMinor,
+    lineCount: total.lineIds.size,
+    budgetMinor,
+    overBudgetMinor,
+    shareBps
+  };
+}
+
 /**
  * Produces a cost-centre allocation for an invoice. Line amounts are allocated by rule;
  * the invoice's tax is then apportioned pro-rata to each cost centre's subtotal using the
@@ -94,7 +164,8 @@ export function allocateLine(
 export function buildAllocationReport(inputs: AllocationInputs): AllocationReport {
   const { invoice, lines, costCentres } = inputs;
   const currency = invoice.currency as CurrencyCode;
-  const lineSubtotal = lines.reduce((acc, l) => acc + l.amountMinor, 0);
+  let lineSubtotal = 0;
+  for (const l of lines) lineSubtotal += l.amountMinor;
   if (lineSubtotal !== invoice.subtotalMinor) {
     throw new BusinessRuleError(
       'invoice-lines-mismatch',
@@ -103,50 +174,24 @@ export function buildAllocationReport(inputs: AllocationInputs): AllocationRepor
   }
 
   const activeIds = new Set(costCentres.filter((c) => c.active).map((c) => c.id));
-  const splitsBySite = new Map<string, SiteSplitRule[]>();
-  for (const rule of inputs.splitRules) {
-    const list = splitsBySite.get(rule.siteId) ?? [];
-    list.push(rule);
-    splitsBySite.set(rule.siteId, list);
+  const splitsBySite = groupSplitsBySite(inputs.splitRules);
+  const allocated: AllocatedLine[] = [];
+  for (const line of lines) {
+    allocated.push(...allocateLine(line, currency, activeIds, splitsBySite, inputs.siteCostCentres));
   }
 
-  const allocated = lines.flatMap((l) => allocateLine(l, currency, activeIds, splitsBySite, inputs.siteCostCentres));
-
-  const totals = new Map<string, { subtotal: number; lineIds: Set<string> }>();
-  for (const a of allocated) {
-    const t = totals.get(a.costCentreId) ?? { subtotal: 0, lineIds: new Set<string>() };
-    t.subtotal += a.amountMinor;
-    t.lineIds.add(a.lineId);
-    totals.set(a.costCentreId, t);
-  }
-
-  const keys = [...totals.keys()].sort((a, b) => (a === UNALLOCATED ? 1 : b === UNALLOCATED ? -1 : a.localeCompare(b)));
-  const weights = keys.map((k) => Math.max(0, totals.get(k)!.subtotal));
-  const taxParts =
-    weights.some((w) => w > 0) && invoice.taxMinor !== 0
-      ? allocateByWeights(money(invoice.taxMinor, currency), weights).map((m) => m.amountMinor)
-      : keys.map(() => 0);
+  const totals = totalsByCostCentre(allocated);
+  const keys = [...totals.keys()].sort(compareCostCentreKeys);
+  const subtotals = keys.map((k) => (totals.get(k) as CostCentreTotal).subtotal);
+  const taxParts = apportionTax(invoice.taxMinor, currency, subtotals);
 
   const byId = new Map(costCentres.map((c) => [c.id, c]));
-  const allocations: CostCentreAllocation[] = keys.map((key, i) => {
-    const cc = byId.get(key);
-    const subtotalMinor = totals.get(key)!.subtotal;
-    const taxMinor = taxParts[i];
-    const totalMinor = subtotalMinor + taxMinor;
-    const budgetMinor = cc?.monthlyBudgetMinor ?? null;
-    return {
-      costCentreId: key,
-      code: cc?.code ?? UNALLOCATED,
-      name: cc?.name ?? 'Unallocated',
-      subtotalMinor,
-      taxMinor,
-      totalMinor,
-      lineCount: totals.get(key)!.lineIds.size,
-      budgetMinor,
-      overBudgetMinor: budgetMinor === null ? 0 : Math.max(0, totalMinor - budgetMinor),
-      shareBps: invoice.subtotalMinor === 0 ? 0 : Math.round((subtotalMinor * FULL_SHARE_BPS) / invoice.subtotalMinor)
-    };
-  });
+  const allocations: CostCentreAllocation[] = [];
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i];
+    const total = totals.get(key) as CostCentreTotal;
+    allocations.push(toAllocation(key, byId.get(key), total, taxParts[i], invoice.subtotalMinor));
+  }
 
   return {
     invoiceId: invoice.id,
@@ -161,10 +206,18 @@ export function buildAllocationReport(inputs: AllocationInputs): AllocationRepor
   };
 }
 
+const NUMERIC = /^-?\d+(\.\d+)?$/;
+/** Leading characters a spreadsheet would treat as a formula. */
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 function csvEscape(value: string): string {
-  const isNumeric = /^-?\d+(\.\d+)?$/.test(value);
-  const safe = !isNumeric && /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
-  return /[",\n]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
+  let safe = value;
+  if (!NUMERIC.test(value) && FORMULA_START.test(value)) {
+    safe = `'${value}`;
+  }
+  const needsQuotes = safe.includes('"') || safe.includes(',') || safe.includes('\n');
+  if (!needsQuotes) return safe;
+  return `"${safe.replace(/"/g, '""')}"`;
 }
 
 function formatMinor(minor: number): string {

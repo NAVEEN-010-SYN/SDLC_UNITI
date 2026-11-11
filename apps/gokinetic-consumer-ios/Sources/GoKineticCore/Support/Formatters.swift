@@ -78,7 +78,7 @@ public enum DataSizeFormatter {
 public enum SpeedFormatter {
     /// "943 Mbps" or "1.2 Gbps" for a measured throughput.
     public static func string(mbps: Double) -> String {
-        guard mbps.isFinite, mbps >= 0 else { return "—" }
+        guard mbps.isFinite, mbps >= 0 else { return "\u{2014}" }
         if mbps >= 1000 {
             return String(format: "%.1f Gbps", mbps / 1000)
         }
@@ -87,7 +87,7 @@ public enum SpeedFormatter {
     }
 
     public static func latency(ms: Double) -> String {
-        guard ms.isFinite, ms >= 0 else { return "—" }
+        guard ms.isFinite, ms >= 0 else { return "\u{2014}" }
         return String(format: "%.0f ms", ms)
     }
 }
@@ -129,15 +129,15 @@ public struct DisplayDateFormatter: Sendable {
     public func time(_ date: Date) -> String { formatter("jmm").string(from: date) }
     public func monthYear(_ date: Date) -> String { formatter("yMMMM").string(from: date) }
 
-    /// "Mar 3 – Apr 2" billing period label.
+    /// "Mar 3 - Apr 2" billing period label.
     public func period(from start: Date, to end: Date) -> String {
-        "\(shortDate(start)) – \(shortDate(end))"
+        "\(shortDate(start)) \u{2013} \(shortDate(end))"
     }
 
-    /// "Tue, Mar 4 · 8:00 AM – 12:00 PM" appointment window.
+    /// "Tue, Mar 4 - 8:00 AM - 12:00 PM" appointment window.
     public func slotWindow(_ slot: TimeSlot) -> String {
         let day = formatter("EEEMMMd").string(from: slot.start)
-        return "\(day) · \(time(slot.start)) – \(time(slot.end))"
+        return "\(day) \u{00B7} \(time(slot.start)) \u{2013} \(time(slot.end))"
     }
 
     public func relative(_ date: Date, to reference: Date) -> String {

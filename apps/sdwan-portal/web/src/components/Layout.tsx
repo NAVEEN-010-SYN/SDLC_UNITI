@@ -32,11 +32,11 @@ export function Layout() {
   return (
     <div className="shell">
       <header>
-        <span className="brand">Uniti Business · SD-WAN</span>
+        <span className="brand">Uniti Business &middot; SD-WAN</span>
         {user && !user.accountId && <AccountPicker />}
         {user && (
           <span className="who">
-            {user.userId} · {user.roles.map(humanize).join(', ')}
+            {user.userId} &middot; {user.roles.map(humanize).join(', ')}
             <button type="button" onClick={signOut}>
               Sign out
             </button>

@@ -67,11 +67,13 @@ public class DashboardService {
         Map<DealStatus, PipelineKpis.StageTotal> dealTotals = new EnumMap<>(DealStatus.class);
         deals.rollupByStatus(partnerId, since).forEach(r ->
                 dealTotals.put(r.getStatus(), new PipelineKpis.StageTotal(r.getCount(), r.getMrc())));
-        long openPipeline = DealStatus.CLAIMING.stream()
-                .map(dealTotals::get)
-                .filter(t -> t != null)
-                .mapToLong(PipelineKpis.StageTotal::mrcMinor)
-                .sum();
+        long openPipeline = 0;
+        for (DealStatus status : DealStatus.CLAIMING) {
+            PipelineKpis.StageTotal total = dealTotals.get(status);
+            if (total != null) {
+                openPipeline += total.mrcMinor();
+            }
+        }
 
         Map<QuoteStatus, Long> quoteCounts = new EnumMap<>(QuoteStatus.class);
         for (QuoteStatus status : QuoteStatus.values()) {
@@ -84,11 +86,13 @@ public class DashboardService {
         Map<OrderStatus, PipelineKpis.StageTotal> orderTotals = new EnumMap<>(OrderStatus.class);
         orders.rollupByStatus(partnerId, since).forEach(r ->
                 orderTotals.put(r.getStatus(), new PipelineKpis.StageTotal(r.getCount(), r.getMrc())));
-        long inFlight = OrderStatus.IN_FLIGHT.stream()
-                .map(orderTotals::get)
-                .filter(t -> t != null)
-                .mapToLong(PipelineKpis.StageTotal::count)
-                .sum();
+        long inFlight = 0;
+        for (OrderStatus status : OrderStatus.IN_FLIGHT) {
+            PipelineKpis.StageTotal total = orderTotals.get(status);
+            if (total != null) {
+                inFlight += total.count();
+            }
+        }
 
         return new PipelineKpis(
                 partner.getCurrency(),

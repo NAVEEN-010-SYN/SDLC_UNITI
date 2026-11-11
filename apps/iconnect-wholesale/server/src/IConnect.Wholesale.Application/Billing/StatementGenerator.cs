@@ -35,53 +35,18 @@ public sealed class StatementGenerator
 
     public void Populate(BillingStatement statement, StatementInputs inputs, WorkingCalendar orderCalendar)
     {
-        var start = statement.PeriodStart;
-        var end = statement.PeriodEnd;
-        var days = statement.DaysInPeriod;
-
-        foreach (var service in inputs.Services.OrderBy(s => s.Reference, StringComparer.Ordinal))
+        var services = inputs.Services.OrderBy(s => s.Reference, StringComparer.Ordinal);
+        foreach (var service in services)
         {
-            foreach (var period in service.RentalPeriods)
-            {
-                var billedDays = period.DaysWithin(start, end);
-                if (billedDays == 0)
-                {
-                    continue;
-                }
-
-                var monthly = new Money(period.MonthlyRentalMinor, period.Currency);
-                var amount = billedDays == days ? monthly : monthly.ProRate(billedDays, days);
-                var description = billedDays == days
-                    ? $"{period.ProductCode} rental {service.Uprn}"
-                    : $"{period.ProductCode} rental {service.Uprn} ({billedDays}/{days} days)";
-                statement.AddLine(ChargeType.Rental, description, amount, service.Reference, billedDays);
-            }
+            AddRentalLines(statement, service);
         }
 
-        foreach (var order in inputs.CompletedOrders.OrderBy(o => o.CompletedDate).ThenBy(o => o.Reference, StringComparer.Ordinal))
+        var completed = inputs.CompletedOrders
+            .OrderBy(o => o.CompletedDate)
+            .ThenBy(o => o.Reference, StringComparer.Ordinal);
+        foreach (var order in completed)
         {
-            if (order.OneOffCharge is { IsZero: false } charge)
-            {
-                var type = order.Type switch
-                {
-                    OrderType.Provide => ChargeType.Connection,
-                    OrderType.Migrate => ChargeType.Migration,
-                    OrderType.Modify => ChargeType.Modify,
-                    _ => (ChargeType?)null,
-                };
-
-                if (type is { } chargeType)
-                {
-                    statement.AddLine(chargeType, $"{order.Type} {order.Uprn} completed {order.CompletedDate:yyyy-MM-dd}", charge, order.Reference);
-                }
-            }
-
-            var late = order.WorkingDaysLate(orderCalendar);
-            if (late > 0)
-            {
-                var credit = _credits.ForLateDelivery(order.CareLevel, late, statement.Currency);
-                statement.AddLine(ChargeType.LateDeliveryCredit, $"Late delivery credit: {credit.Basis}", credit.Amount, order.Reference, credit.Units);
-            }
+            AddCompletedOrderLines(statement, order, orderCalendar);
         }
 
         foreach (var order in inputs.CancelledWithCharge.OrderBy(o => o.Reference, StringComparer.Ordinal))
@@ -92,6 +57,64 @@ public sealed class StatementGenerator
         foreach (var fault in inputs.CreditedFaults.OrderBy(f => f.ResolvedAt))
         {
             statement.AddLine(ChargeType.FaultCredit, $"Fault repair credit: {fault.ServiceCreditBasis}", fault.ServiceCredit!.Value, fault.Reference);
+        }
+    }
+
+    /// <summary>One rental line per rental period overlapping the month, pro-rated by day.</summary>
+    private static void AddRentalLines(BillingStatement statement, WholesaleService service)
+    {
+        var days = statement.DaysInPeriod;
+        foreach (var period in service.RentalPeriods)
+        {
+            var billedDays = period.DaysWithin(statement.PeriodStart, statement.PeriodEnd);
+            if (billedDays == 0)
+            {
+                continue;
+            }
+
+            var monthly = new Money(period.MonthlyRentalMinor, period.Currency);
+            if (billedDays == days)
+            {
+                statement.AddLine(ChargeType.Rental, $"{period.ProductCode} rental {service.Uprn}", monthly, service.Reference, billedDays);
+            }
+            else
+            {
+                var description = $"{period.ProductCode} rental {service.Uprn} ({billedDays}/{days} days)";
+                statement.AddLine(ChargeType.Rental, description, monthly.ProRate(billedDays, days), service.Reference, billedDays);
+            }
+        }
+    }
+
+    /// <summary>One-off charge (if any) and late delivery credit (if any) for a completed order.</summary>
+    private void AddCompletedOrderLines(BillingStatement statement, Order order, WorkingCalendar orderCalendar)
+    {
+        var chargeType = OneOffChargeType(order.Type);
+        if (order.OneOffCharge is not null && !order.OneOffCharge.Value.IsZero && chargeType is not null)
+        {
+            var description = $"{order.Type} {order.Uprn} completed {order.CompletedDate:yyyy-MM-dd}";
+            statement.AddLine(chargeType.Value, description, order.OneOffCharge.Value, order.Reference);
+        }
+
+        var late = order.WorkingDaysLate(orderCalendar);
+        if (late > 0)
+        {
+            var credit = _credits.ForLateDelivery(order.CareLevel, late, statement.Currency);
+            statement.AddLine(ChargeType.LateDeliveryCredit, $"Late delivery credit: {credit.Basis}", credit.Amount, order.Reference, credit.Units);
+        }
+    }
+
+    private static ChargeType? OneOffChargeType(OrderType type)
+    {
+        switch (type)
+        {
+            case OrderType.Provide:
+                return ChargeType.Connection;
+            case OrderType.Migrate:
+                return ChargeType.Migration;
+            case OrderType.Modify:
+                return ChargeType.Modify;
+            default:
+                return null;
         }
     }
 }

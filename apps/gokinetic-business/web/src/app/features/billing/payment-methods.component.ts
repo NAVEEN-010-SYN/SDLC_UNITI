@@ -32,9 +32,9 @@ export interface CardTokenizer {
 export const CARD_TOKENIZER = new InjectionToken<CardTokenizer>('CARD_TOKENIZER');
 
 export function describeMethod(m: PaymentMethod): string {
-  if (m.kind === 'DIRECT_DEBIT') return `Direct Debit ${m.sortCodeMasked} ••••${m.last4}`;
+  if (m.kind === 'DIRECT_DEBIT') return `Direct Debit ${m.sortCodeMasked} \u2022\u2022\u2022\u2022${m.last4}`;
   const expiry = `${String(m.expiryMonth).padStart(2, '0')}/${String(m.expiryYear).slice(-2)}`;
-  return `${m.cardBrand} ••••${m.last4} (expires ${expiry})`;
+  return `${m.cardBrand} \u2022\u2022\u2022\u2022${m.last4} (expires ${expiry})`;
 }
 
 @Component({
@@ -43,7 +43,7 @@ export function describeMethod(m: PaymentMethod): string {
   imports: [ReactiveFormsModule, ProblemAlertComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a routerLink="/billing">← Invoices</a>
+    <a routerLink="/billing">\u2190 Invoices</a>
     <h1>Payment methods</h1>
     <gkb-problem-alert [problem]="problem()" [extra]="unmatched()" />
     <ul class="cards">
@@ -123,22 +123,29 @@ export class PaymentMethodsComponent {
     this.mode.set(mode);
     if (mode === 'CARD' && this.tokenizer) {
       // The host element renders on the next change-detection pass.
-      queueMicrotask(() => {
-        const host = this.cardHost()?.nativeElement;
-        if (host) void this.tokenizer!.mount(host);
-      });
+      queueMicrotask(() => this.mountCardFields());
     } else {
       this.tokenizer?.unmount();
     }
   }
 
+  private mountCardFields(): void {
+    const host = this.cardHost()?.nativeElement;
+    if (host && this.tokenizer) void this.tokenizer.mount(host);
+  }
+
   addDirectDebit(): void {
     revealErrors(this.ddForm);
     if (this.ddForm.invalid) return;
-    const { holderName, sortCode: sc, accountNumber, makeDefault } = this.ddForm.getRawValue();
-    this.mutate(this.api.addPaymentMethod({ kind: 'DIRECT_DEBIT', holderName: holderName.trim(), sortCode: sc, accountNumber, makeDefault }), () =>
-      this.ddForm.reset()
-    );
+    const v = this.ddForm.getRawValue();
+    const request = {
+      kind: 'DIRECT_DEBIT' as const,
+      holderName: v.holderName.trim(),
+      sortCode: v.sortCode,
+      accountNumber: v.accountNumber,
+      makeDefault: v.makeDefault
+    };
+    this.mutate(this.api.addPaymentMethod(request), () => this.ddForm.reset());
   }
 
   async addCard(makeDefault: boolean): Promise<void> {

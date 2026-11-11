@@ -30,11 +30,13 @@ async function loadDoc(file) {
 
 function pointerGet(doc, pointer) {
   if (!pointer || pointer === '/') return doc;
-  return pointer
-    .slice(1)
-    .split('/')
-    .map((seg) => seg.replace(/~1/g, '/').replace(/~0/g, '~'))
-    .reduce((node, seg) => (node == null ? undefined : node[seg]), doc);
+  let node = doc;
+  for (const raw of pointer.slice(1).split('/')) {
+    if (node == null) return undefined;
+    const seg = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+    node = node[seg];
+  }
+  return node;
 }
 
 /** Resolves a $ref relative to the file it appears in. Returns { file, node } or null. */
@@ -116,51 +118,90 @@ async function paramNames(params, file) {
   return out;
 }
 
+function checkOperationId(op, where, file, report, seenOperationIds) {
+  if (!op.operationId) {
+    report('error', where, 'operationId is required');
+  } else if (seenOperationIds.has(op.operationId)) {
+    report('error', where, `operationId ${op.operationId} already used in ${seenOperationIds.get(op.operationId)}`);
+  } else {
+    seenOperationIds.set(op.operationId, path.basename(file));
+  }
+}
+
+function namesIn(params, location) {
+  const names = new Set();
+  for (const p of params) {
+    if (p.in === location) names.add(p.name);
+  }
+  return names;
+}
+
+function checkPathParams(route, params, where, report) {
+  const declared = namesIn(params, 'path');
+  const templated = new Set();
+  for (const match of route.matchAll(/\{([^}]+)\}/g)) templated.add(match[1]);
+  for (const name of templated) {
+    if (!declared.has(name)) report('error', where, `path parameter {${name}} is not declared`);
+  }
+  for (const name of declared) {
+    if (!templated.has(name)) report('error', where, `declared path parameter ${name} is not in the route`);
+  }
+}
+
+async function checkErrorResponses(responses, where, file, report) {
+  for (const code of Object.keys(responses)) {
+    if (!/^[45]\d\d$/.test(code)) continue;
+    const { node } = await deref(responses[code], file);
+    const types = Object.keys(node?.content || {});
+    if (!types.includes('application/problem+json')) {
+      report('error', `${where}.responses.${code}`, 'error responses must be application/problem+json');
+    }
+  }
+}
+
+async function checkPagination(responses, where, file, report) {
+  const ok = await deref(responses['200'], file);
+  const schema = ok.node?.content?.['application/json']?.schema;
+  const parts = schema?.allOf || [];
+  let hasMeta = false;
+  let hasItems = false;
+  for (const p of parts) {
+    if (typeof p.$ref === 'string' && p.$ref.endsWith('/PageMeta')) hasMeta = true;
+    if (p.properties?.items?.type === 'array') hasItems = true;
+  }
+  if (!hasMeta || !hasItems) report('error', where, 'paginated responses must be PageMeta + items[]');
+}
+
+async function checkOperation(entry, file, report, seenOperationIds) {
+  const { route, method, op, pathParams } = entry;
+  const where = `paths.${route}.${method}`;
+  if (!route.startsWith('/api/v1/')) report('error', where, 'paths must be versioned under /api/v1');
+  checkOperationId(op, where, file, report, seenOperationIds);
+
+  const params = await paramNames(pathParams.concat(op.parameters || []), file);
+  checkPathParams(route, params, where, report);
+
+  const query = namesIn(params, 'query');
+  if (query.has('page') !== query.has('pageSize')) report('error', where, 'page and pageSize must be declared together');
+
+  const responses = op.responses || {};
+  const has2xx = Object.keys(responses).some((c) => /^2\d\d$/.test(c));
+  if (!has2xx) report('error', where, 'must declare a 2xx response');
+  if (op.security?.length === 0) report('warn', where, 'operation opts out of authentication');
+
+  await checkErrorResponses(responses, where, file, report);
+
+  if (['post', 'put', 'patch'].includes(method) && op.requestBody) {
+    const { node } = await deref(op.requestBody, file);
+    if (!node?.required) report('warn', `${where}.requestBody`, 'request body should be required');
+  }
+
+  if (query.has('page')) await checkPagination(responses, where, file, report);
+}
+
 async function checkOperations(doc, file, report, seenOperationIds) {
-  for (const { route, method, op, pathParams } of operations(doc)) {
-    const where = `paths.${route}.${method}`;
-    if (!route.startsWith('/api/v1/')) report('error', where, 'paths must be versioned under /api/v1');
-
-    if (!op.operationId) report('error', where, 'operationId is required');
-    else if (seenOperationIds.has(op.operationId)) {
-      report('error', where, `operationId ${op.operationId} already used in ${seenOperationIds.get(op.operationId)}`);
-    } else seenOperationIds.set(op.operationId, path.basename(file));
-
-    const params = await paramNames([...pathParams, ...(op.parameters || [])], file);
-    const declared = new Set(params.filter((p) => p.in === 'path').map((p) => p.name));
-    const templated = new Set([...route.matchAll(/\{([^}]+)\}/g)].map((m) => m[1]));
-    for (const name of templated) if (!declared.has(name)) report('error', where, `path parameter {${name}} is not declared`);
-    for (const name of declared) if (!templated.has(name)) report('error', where, `declared path parameter ${name} is not in the route`);
-
-    const query = new Set(params.filter((p) => p.in === 'query').map((p) => p.name));
-    if (query.has('page') !== query.has('pageSize')) report('error', where, 'page and pageSize must be declared together');
-
-    const responses = op.responses || {};
-    const codes = Object.keys(responses);
-    if (!codes.some((c) => /^2\d\d$/.test(c))) report('error', where, 'must declare a 2xx response');
-    if (op.security?.length === 0) report('warn', where, 'operation opts out of authentication');
-
-    for (const code of codes.filter((c) => /^[45]\d\d$/.test(c))) {
-      const { node } = await deref(responses[code], file);
-      const types = Object.keys(node?.content || {});
-      if (!types.includes('application/problem+json')) {
-        report('error', `${where}.responses.${code}`, 'error responses must be application/problem+json');
-      }
-    }
-
-    if (['post', 'put', 'patch'].includes(method) && op.requestBody) {
-      const { node } = await deref(op.requestBody, file);
-      if (!node?.required) report('warn', `${where}.requestBody`, 'request body should be required');
-    }
-
-    if (query.has('page')) {
-      const ok = await deref(responses['200'], file);
-      const schema = ok.node?.content?.['application/json']?.schema;
-      const parts = schema?.allOf || [];
-      const hasMeta = parts.some((p) => typeof p.$ref === 'string' && p.$ref.endsWith('/PageMeta'));
-      const hasItems = parts.some((p) => p.properties?.items?.type === 'array');
-      if (!hasMeta || !hasItems) report('error', where, 'paginated responses must be PageMeta + items[]');
-    }
+  for (const entry of operations(doc)) {
+    await checkOperation(entry, file, report, seenOperationIds);
   }
 }
 
@@ -218,9 +259,14 @@ export async function lintAll(files) {
 }
 
 async function main(argv) {
-  const files = argv.length
-    ? argv.map((f) => path.resolve(f))
-    : (await readdir(SPEC_DIR)).filter((f) => f.endsWith('.yaml')).map((f) => path.join(SPEC_DIR, f));
+  const files = [];
+  if (argv.length) {
+    for (const f of argv) files.push(path.resolve(f));
+  } else {
+    for (const f of await readdir(SPEC_DIR)) {
+      if (f.endsWith('.yaml')) files.push(path.join(SPEC_DIR, f));
+    }
+  }
 
   const findings = await lintAll(files);
   for (const f of findings) console.log(`${f.level.toUpperCase().padEnd(5)} ${f.file} ${f.at}: ${f.message}`);

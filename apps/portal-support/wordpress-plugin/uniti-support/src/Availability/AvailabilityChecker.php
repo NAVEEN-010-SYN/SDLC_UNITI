@@ -30,9 +30,12 @@ final class AvailabilityChecker
         add_shortcode('uniti_availability_checker', [$this, 'render']);
         add_action('wp_ajax_' . self::ACTION, [$this, 'handle']);
         add_action('wp_ajax_nopriv_' . self::ACTION, [$this, 'handle']);
-        add_action('wp_enqueue_scripts', static function (): void {
-            wp_register_script('uniti-availability', UNITI_SUPPORT_URL . 'assets/availability.js', [], UNITI_SUPPORT_VERSION, true);
-        });
+        add_action('wp_enqueue_scripts', [$this, 'registerScript']);
+    }
+
+    public function registerScript(): void
+    {
+        wp_register_script('uniti-availability', UNITI_SUPPORT_URL . 'assets/availability.js', [], UNITI_SUPPORT_VERSION, true);
     }
 
     public function render(): string
@@ -43,26 +46,29 @@ final class AvailabilityChecker
             'action' => self::ACTION,
             'nonce' => wp_create_nonce(self::NONCE),
             'messages' => [
-                'checking' => __('Checking your address…', 'uniti-support'),
+                'checking' => __("Checking your address\u{2026}", 'uniti-support'),
                 'error' => __('We could not check this address right now. Please try again shortly.', 'uniti-support'),
                 'unavailable' => __('Uniti fibre is not available at this address yet.', 'uniti-support'),
             ],
         ]);
 
-        $field = static fn (string $name, string $label, string $autocomplete, bool $required) => sprintf(
+        return '<form class="uniti-availability" novalidate>'
+            . $this->field('line1', __('Street address', 'uniti-support'), 'address-line1', true)
+            . $this->field('unit', __('Apartment / unit (optional)', 'uniti-support'), 'address-line2', false)
+            . $this->field('zip', __('ZIP code', 'uniti-support'), 'postal-code', true)
+            . '<button type="submit">' . esc_html__('Check availability', 'uniti-support') . '</button>'
+            . '<div class="uniti-availability__result" aria-live="polite"></div></form>';
+    }
+
+    private function field(string $name, string $label, string $autocomplete, bool $required): string
+    {
+        return sprintf(
             '<p><label for="uniti-av-%1$s">%2$s</label><input id="uniti-av-%1$s" name="%1$s" type="text" autocomplete="%3$s" %4$s /></p>',
             esc_attr($name),
             esc_html($label),
             esc_attr($autocomplete),
             $required ? 'required' : '',
         );
-
-        return '<form class="uniti-availability" novalidate>'
-            . $field('line1', __('Street address', 'uniti-support'), 'address-line1', true)
-            . $field('unit', __('Apartment / unit (optional)', 'uniti-support'), 'address-line2', false)
-            . $field('zip', __('ZIP code', 'uniti-support'), 'postal-code', true)
-            . '<button type="submit">' . esc_html__('Check availability', 'uniti-support') . '</button>'
-            . '<div class="uniti-availability__result" aria-live="polite"></div></form>';
     }
 
     public function handle(): void
@@ -85,7 +91,14 @@ final class AvailabilityChecker
             wp_send_json_error(['errors' => $result['errors']], 422);
         }
 
-        $body = $this->api->get('/availability', array_filter($result['address'], static fn ($v) => $v !== null));
+        $query = [];
+        foreach ($result['address'] as $key => $value) {
+            if ($value !== null) {
+                $query[$key] = $value;
+            }
+        }
+
+        $body = $this->api->get('/availability', $query);
         if ($body === null) {
             wp_send_json_error(['message' => __('Availability service unavailable.', 'uniti-support')], 502);
         }

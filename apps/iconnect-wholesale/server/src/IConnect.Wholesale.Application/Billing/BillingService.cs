@@ -141,12 +141,11 @@ public sealed class BillingService
     public async Task<DisputeDto> RaiseDisputeAsync(Guid statementId, RaiseDisputeRequest request, CancellationToken ct)
     {
         var statement = await LoadOwnedAsync(statementId, ct);
-        var openDisputes = await _disputes.ListForStatementAsync(statementId, ct);
-        var alreadyDisputed = openDisputes.Where(d => d.IsOpen).SelectMany(d => d.LineIds).ToHashSet();
-        var overlap = request.LineIds.Where(alreadyDisputed.Contains).ToList();
-        if (overlap.Count > 0)
+        var existingDisputes = await _disputes.ListForStatementAsync(statementId, ct);
+        var overlapCount = CountAlreadyDisputed(existingDisputes, request.LineIds);
+        if (overlapCount > 0)
         {
-            throw new ConflictException("dispute.line_already_disputed", $"{overlap.Count} selected line(s) are already under dispute.");
+            throw new ConflictException("dispute.line_already_disputed", $"{overlapCount} selected line(s) are already under dispute.");
         }
 
         var dispute = Dispute.Raise(await _references.NextAsync("DSP", ct), statement, request.LineIds, request.Reason,
@@ -156,8 +155,35 @@ public sealed class BillingService
         return ToDto(dispute);
     }
 
-    public async Task<IReadOnlyList<DisputeDto>> ListDisputesAsync(CancellationToken ct) =>
-        (await _disputes.ListForPartnerAsync(_caller.PartnerId, ct)).OrderByDescending(d => d.CreatedAt).Select(ToDto).ToList();
+    private static int CountAlreadyDisputed(IEnumerable<Dispute> disputes, IReadOnlyList<Guid> lineIds)
+    {
+        var alreadyDisputed = new HashSet<Guid>();
+        foreach (var d in disputes)
+        {
+            if (d.IsOpen)
+            {
+                alreadyDisputed.UnionWith(d.LineIds);
+            }
+        }
+
+        var count = 0;
+        foreach (var lineId in lineIds)
+        {
+            if (alreadyDisputed.Contains(lineId))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    public async Task<IReadOnlyList<DisputeDto>> ListDisputesAsync(CancellationToken ct)
+    {
+        var disputes = await _disputes.ListForPartnerAsync(_caller.PartnerId, ct);
+        var newestFirst = disputes.OrderByDescending(d => d.CreatedAt);
+        return newestFirst.Select(ToDto).ToList();
+    }
 
     /// <summary>
     /// Support decision on a dispute. An award is posted to the statement as a negative adjustment
@@ -180,14 +206,16 @@ public sealed class BillingService
         }
 
         dispute.Decide(new Money(request.AwardedMinor, statement.Currency), request.Outcome, now);
-        if (dispute.AwardedAmount is { IsZero: false } award)
+        if (dispute.AwardedAmount is not null && !dispute.AwardedAmount.Value.IsZero)
         {
+            var award = dispute.AwardedAmount.Value;
             statement.AddLine(ChargeType.DisputeAdjustment, $"Dispute {dispute.Reference} adjustment",
                 new Money(-award.MinorUnits, award.Currency), dispute.Reference);
         }
 
         var others = await _disputes.ListForStatementAsync(statement.Id, ct);
-        if (others.Where(d => d.Id != dispute.Id).All(d => !d.IsOpen))
+        var anyOtherOpen = others.Any(d => d.Id != dispute.Id && d.IsOpen);
+        if (!anyOtherOpen)
         {
             statement.ReturnToIssued();
         }
@@ -210,20 +238,35 @@ public sealed class BillingService
     private async Task<StatementDetailDto> ToDetailAsync(BillingStatement s, CancellationToken ct)
     {
         var disputes = await _disputes.ListForStatementAsync(s.Id, ct);
+        var lines = new List<StatementLineDto>();
+        foreach (var l in s.Lines)
+        {
+            lines.Add(new StatementLineDto(l.Id, l.LineNumber, l.Type.ToString(), l.Description, l.Quantity, l.Amount.MinorUnits, l.SourceReference));
+        }
+
         return new StatementDetailDto(s.Id, s.Reference, s.PeriodStart, s.PeriodEnd, Upper(s.Status), s.Currency,
             s.Charges.MinorUnits, s.Credits.MinorUnits, s.Total.MinorUnits, s.IssuedAt, s.DueDate,
-            s.Lines.Select(l => new StatementLineDto(l.Id, l.LineNumber, l.Type.ToString(), l.Description, l.Quantity, l.Amount.MinorUnits, l.SourceReference)).ToList(),
-            disputes.Select(ToDto).ToList());
+            lines, disputes.Select(ToDto).ToList());
     }
 
-    private static DisputeDto ToDto(Dispute d) => new(d.Id, d.Reference, d.StatementId, d.LineIds, d.Reason, d.ClaimedAmount.MinorUnits,
-        d.Status switch
+    private static DisputeDto ToDto(Dispute d)
+    {
+        return new DisputeDto(d.Id, d.Reference, d.StatementId, d.LineIds, d.Reason, d.ClaimedAmount.MinorUnits,
+            Upper(d.Status), d.AwardedAmount?.MinorUnits, d.Outcome, d.CreatedAt, d.DecidedAt);
+    }
+
+    private static string Upper(DisputeStatus status)
+    {
+        switch (status)
         {
-            DisputeStatus.UnderReview => "UNDER_REVIEW",
-            DisputeStatus.PartiallyUpheld => "PARTIALLY_UPHELD",
-            _ => d.Status.ToString().ToUpperInvariant(),
-        },
-        d.AwardedAmount?.MinorUnits, d.Outcome, d.CreatedAt, d.DecidedAt);
+            case DisputeStatus.UnderReview:
+                return "UNDER_REVIEW";
+            case DisputeStatus.PartiallyUpheld:
+                return "PARTIALLY_UPHELD";
+            default:
+                return status.ToString().ToUpperInvariant();
+        }
+    }
 
     private static string Upper(StatementStatus status) => status.ToString().ToUpperInvariant();
 
@@ -235,6 +278,12 @@ public sealed class BillingService
             value = "'" + value;
         }
 
-        return value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0 ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"" : value;
+        var needsQuotes = value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0;
+        if (!needsQuotes)
+        {
+            return value;
+        }
+
+        return "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\"";
     }
 }

@@ -9,8 +9,8 @@
  *  - A Global Privacy Control signal forces "marketing" off regardless of choice.
  */
 
-export const CONSENT_CATEGORIES = ['necessary', 'functional', 'analytics', 'marketing'] as const;
-export type ConsentCategory = (typeof CONSENT_CATEGORIES)[number];
+export type ConsentCategory = 'necessary' | 'functional' | 'analytics' | 'marketing';
+export const CONSENT_CATEGORIES: ConsentCategory[] = ['necessary', 'functional', 'analytics', 'marketing'];
 export type ConsentChoices = Record<ConsentCategory, boolean>;
 export type ConsentSource = 'banner_accept_all' | 'banner_reject_all' | 'preferences';
 
@@ -106,9 +106,26 @@ export function parseConsentRecord(value: unknown): ConsentRecord | undefined {
   const choices = v.choices as Partial<ConsentChoices>;
   if (!CONSENT_CATEGORIES.every((c) => typeof choices[c] === 'boolean')) return undefined;
   if (v.source !== 'banner_accept_all' && v.source !== 'banner_reject_all' && v.source !== 'preferences') return undefined;
-  return { schema: 1, policyVersion: v.policyVersion, decidedAt: v.decidedAt, source: v.source, gpc: v.gpc === true, choices: { ...(choices as ConsentChoices), necessary: true } };
+  return {
+    schema: 1,
+    policyVersion: v.policyVersion,
+    decidedAt: v.decidedAt,
+    source: v.source,
+    gpc: v.gpc === true,
+    choices: { ...(choices as ConsentChoices), necessary: true },
+  };
 }
 
-export function globalPrivacyControl(nav: Navigator | undefined = typeof navigator === 'undefined' ? undefined : navigator): boolean {
-  return (nav as (Navigator & { globalPrivacyControl?: boolean }) | undefined)?.globalPrivacyControl === true;
+interface GpcNavigator extends Navigator {
+  globalPrivacyControl?: boolean;
+}
+
+function defaultNavigator(): Navigator | undefined {
+  if (typeof navigator === 'undefined') return undefined;
+  return navigator;
+}
+
+export function globalPrivacyControl(nav: Navigator | undefined = defaultNavigator()): boolean {
+  if (!nav) return false;
+  return (nav as GpcNavigator).globalPrivacyControl === true;
 }

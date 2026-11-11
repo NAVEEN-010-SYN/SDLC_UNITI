@@ -3,6 +3,7 @@ package com.uniti.qa.pages.epp;
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
@@ -46,7 +47,11 @@ public final class CommissionStatementPage extends BasePage {
     }
 
     public List<CommissionLine> lines() {
-        return tableRows(LINES_TABLE).stream().map(CommissionLine::from).toList();
+        List<CommissionLine> lines = new ArrayList<>();
+        for (WebElement row : tableRows(LINES_TABLE)) {
+            lines.add(CommissionLine.from(row));
+        }
+        return lines;
     }
 
     public long totalMinor() {

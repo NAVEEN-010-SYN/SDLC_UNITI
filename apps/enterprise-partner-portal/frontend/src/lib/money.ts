@@ -32,11 +32,11 @@ export function formatMoney(amountMinor: number, currency: string): string {
 }
 
 /**
- * Parses a user-entered major-unit amount ("1,234.5", "£99") into minor units. Returns
+ * Parses a user-entered major-unit amount ("1,234.5", "$99", pound-prefixed) into minor units. Returns
  * undefined for anything that is not a plain non-negative amount with at most two decimals.
  */
 export function parseMoneyInput(input: string): number | undefined {
-  const cleaned = input.replace(/[£$€,\s]/g, '');
+  const cleaned = input.replace(/[\u00A3$\u20AC,\s]/g, '');
   const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(cleaned);
   if (!match) {
     return undefined;

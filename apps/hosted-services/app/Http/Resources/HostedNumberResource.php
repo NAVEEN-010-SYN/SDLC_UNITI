@@ -16,11 +16,12 @@ final class HostedNumberResource extends ApiResource
     public function toArray(Request $request): array
     {
         $number = $this->resource;
+        $parsed = PhoneNumber::tryParse($number->e164);
 
         return [
             'id' => $number->id,
             'e164' => $number->e164,
-            'areaCode' => PhoneNumber::tryParse($number->e164)?->npa(),
+            'areaCode' => $parsed === null ? null : $parsed->npa(),
             'label' => $number->label,
             'status' => $number->status->value,
             'extensionId' => $number->extension_id,

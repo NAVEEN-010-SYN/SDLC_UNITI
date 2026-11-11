@@ -109,7 +109,7 @@ public struct UsageInsights: Equatable, Sendable {
         }
     }
 
-    /// Hour of day (0–23) with the most traffic across the samples, used for
+    /// Hour of day (0-23) with the most traffic across the samples, used for
     /// the "your busiest time is 9 PM" hint. Nil without data.
     public static func peakHour(_ samples: [UsageSample], calendar: Calendar) -> Int? {
         var perHour: [Int: Int64] = [:]

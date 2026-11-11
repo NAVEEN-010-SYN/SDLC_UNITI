@@ -40,7 +40,7 @@ public sealed class ConflictException : ApplicationExceptionBase
     }
 }
 
-/// <summary>Input failed validation. Maps to 400 with a field → messages dictionary.</summary>
+/// <summary>Input failed validation. Maps to 400 with a field -> messages dictionary.</summary>
 public sealed class RequestValidationException : ApplicationExceptionBase
 {
     public RequestValidationException(IReadOnlyDictionary<string, string[]> errors)

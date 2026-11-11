@@ -8,8 +8,9 @@ namespace IConnect.Wholesale.Domain.Orders;
 /// Provide orders create a new service; Cease, Modify and Migrate act on an existing service.
 /// The delivery SLA clock starts on validation and runs against the business-hours calendar
 /// until the order is completed; customer-caused holds pause it.
+/// State transitions live in Order.Lifecycle.cs.
 /// </summary>
-public sealed class Order : AggregateRoot
+public sealed partial class Order : AggregateRoot
 {
     private readonly List<OrderStatusChange> _history = new();
 
@@ -112,193 +113,54 @@ public sealed class Order : AggregateRoot
             throw new DomainException("order.invalid_partner_reference", "Partner reference is required and must be at most 40 characters.");
         }
 
-        switch (type)
-        {
-            case OrderType.Provide when string.IsNullOrWhiteSpace(productCode):
-                throw new DomainException("order.product_required", "Provide orders require a product code.");
-            case OrderType.Provide when existingServiceId is not null:
-                throw new DomainException("order.unexpected_service", "Provide orders must not reference an existing service.");
-            case OrderType.Cease or OrderType.Modify when existingServiceId is null:
-                throw new DomainException("order.service_required", $"{type} orders require an existing service id.");
-            case OrderType.Modify when string.IsNullOrWhiteSpace(productCode):
-                throw new DomainException("order.product_required", "Modify orders require the target product code.");
-            case OrderType.Migrate when string.IsNullOrWhiteSpace(migrationAuthCode):
-                throw new DomainException("order.migration_code_required", "Migrate orders require the losing provider's switching code.");
-            case OrderType.Migrate when string.IsNullOrWhiteSpace(productCode):
-                throw new DomainException("order.product_required", "Migrate orders require a product code.");
-        }
+        EnsureTypeRequirements(type, productCode, existingServiceId, migrationAuthCode);
 
         return new Order(reference, partnerId, partnerReference.Trim(), type, uprn, productCode, careLevel,
             existingServiceId, migrationAuthCode, requestedDate, now);
     }
 
-    public void AttachToBulkUpload(Guid bulkUploadId) => BulkUploadId = bulkUploadId;
-
-    public void Price(Money monthlyRental, Money oneOffCharge)
+    /// <summary>Per-type field requirements, checked in a fixed order.</summary>
+    private static void EnsureTypeRequirements(OrderType type, string? productCode, Guid? existingServiceId, string? migrationAuthCode)
     {
-        EnsureAmendable();
-        MonthlyRental = monthlyRental;
-        OneOffCharge = oneOffCharge;
-    }
+        bool noProduct = string.IsNullOrWhiteSpace(productCode);
 
-    public void Submit(DateTimeOffset now, string actor)
-    {
-        if (Type is OrderType.Provide or OrderType.Modify or OrderType.Migrate && MonthlyRental is null)
+        if (type == OrderType.Provide)
         {
-            throw new DomainException("order.not_priced", "Order must be priced before submission.");
-        }
+            if (noProduct)
+            {
+                throw new DomainException("order.product_required", "Provide orders require a product code.");
+            }
 
-        Move(OrderStatus.Submitted, now, "submitted", actor);
-    }
+            if (existingServiceId is not null)
+            {
+                throw new DomainException("order.unexpected_service", "Provide orders must not reference an existing service.");
+            }
 
-    /// <summary>
-    /// Accepts the order, fixes the committed completion date and starts the delivery SLA clock.
-    /// The committed date is the later of the requested date and the lead-time date.
-    /// </summary>
-    public void Validate(DateTimeOffset now, WorkingCalendar calendar, int leadTimeWorkingDays, string actor)
-    {
-        var earliest = calendar.AddWorkingDays(calendar.LocalDate(now), leadTimeWorkingDays);
-        CommittedDate = RequestedDate > earliest ? RequestedDate : earliest;
-        var target = TimeSpan.FromTicks(calendar.NominalDayLength.Ticks * calendar.WorkingDaysBetween(calendar.LocalDate(now), CommittedDate.Value));
-        DeliveryClock = new SlaClock(now, target <= TimeSpan.Zero ? calendar.NominalDayLength : target, calendar.Name);
-        Move(OrderStatus.Validated, now, $"committed for {CommittedDate:yyyy-MM-dd}", actor);
-    }
-
-    public void Reject(DateTimeOffset now, string reason, string actor)
-    {
-        FailureReason = reason;
-        DeliveryClock?.Stop(now);
-        Move(OrderStatus.Failed, now, reason, actor);
-    }
-
-    public void StartProvisioning(DateTimeOffset now, string actor)
-    {
-        if (Type is OrderType.Provide or OrderType.Migrate && AppointmentSlotId is null)
-        {
-            throw new DomainException("order.appointment_required", $"{Type} orders need a booked appointment before provisioning.");
-        }
-
-        Move(OrderStatus.Provisioning, now, "provisioning started", actor);
-    }
-
-    public void BookAppointment(Guid slotId, DateOnly slotDate)
-    {
-        if (!OrderStateMachine.IsAmendable(Status) && Status != OrderStatus.Provisioning)
-        {
-            throw new DomainException("order.not_amendable", $"Appointments cannot be changed while the order is {Status}.");
-        }
-
-        if (Status == OrderStatus.Validated && CommittedDate is { } committed && slotDate > committed)
-        {
-            CommittedDate = slotDate;
-        }
-
-        AppointmentSlotId = slotId;
-    }
-
-    public Guid? ReleaseAppointment()
-    {
-        var released = AppointmentSlotId;
-        AppointmentSlotId = null;
-        return released;
-    }
-
-    public void PlaceOnHold(DateTimeOffset now, string reason, string actor)
-    {
-        if (Status is not (OrderStatus.Validated or OrderStatus.Provisioning))
-        {
-            throw new DomainException("order.hold_not_allowed", "Only validated or provisioning orders can be placed on hold.");
-        }
-
-        if (IsOnHold)
-        {
             return;
         }
 
-        HoldReason = reason;
-        DeliveryClock?.Pause(now, reason);
-        _history.Add(new OrderStatusChange(Status, Status, now, $"on hold: {reason}", actor));
-    }
-
-    public void ReleaseHold(DateTimeOffset now, string actor)
-    {
-        if (!IsOnHold)
+        if ((type == OrderType.Cease || type == OrderType.Modify) && existingServiceId is null)
         {
-            return;
+            throw new DomainException("order.service_required", $"{type} orders require an existing service id.");
         }
 
-        HoldReason = null;
-        DeliveryClock?.Resume(now);
-        _history.Add(new OrderStatusChange(Status, Status, now, "hold released", actor));
-    }
-
-    public void Complete(DateTimeOffset now, DateOnly completedDate, Guid? resultingServiceId, string actor)
-    {
-        if (IsOnHold)
+        if (type == OrderType.Modify && noProduct)
         {
-            throw new DomainException("order.on_hold", "Release the hold before completing the order.");
+            throw new DomainException("order.product_required", "Modify orders require the target product code.");
         }
 
-        CompletedDate = completedDate;
-        ResultingServiceId = resultingServiceId ?? ExistingServiceId;
-        DeliveryClock?.Stop(now);
-        Move(OrderStatus.Active, now, "completed", actor);
-    }
-
-    /// <summary>
-    /// Cancels the order. Once provisioning has started and an engineer visit is booked, a
-    /// cancellation charge equal to the one-off charge applies (work has been dispatched).
-    /// </summary>
-    public void Cancel(DateTimeOffset now, string reason, string actor)
-    {
-        OrderStateMachine.EnsureCanTransition(Status, OrderStatus.Cancelled);
-        if (Status == OrderStatus.Provisioning && AppointmentSlotId is not null && OneOffCharge is { } charge)
+        if (type == OrderType.Migrate)
         {
-            CancellationCharge = charge;
+            if (string.IsNullOrWhiteSpace(migrationAuthCode))
+            {
+                throw new DomainException("order.migration_code_required", "Migrate orders require the losing provider's switching code.");
+            }
+
+            if (noProduct)
+            {
+                throw new DomainException("order.product_required", "Migrate orders require a product code.");
+            }
         }
-
-        DeliveryClock?.Stop(now);
-        HoldReason = null;
-        Move(OrderStatus.Cancelled, now, reason, actor);
-    }
-
-    public void AmendRequestedDate(DateOnly requestedDate)
-    {
-        EnsureAmendable();
-        RequestedDate = requestedDate;
-        if (CommittedDate is { } committed && requestedDate > committed)
-        {
-            CommittedDate = requestedDate;
-        }
-    }
-
-    /// <summary>Working days late against the committed date, using the supplied calendar.</summary>
-    public int WorkingDaysLate(WorkingCalendar calendar)
-    {
-        if (CommittedDate is not { } committed || CompletedDate is not { } completed)
-        {
-            return 0;
-        }
-
-        return calendar.WorkingDaysBetween(committed, completed);
-    }
-
-    private void EnsureAmendable()
-    {
-        if (!OrderStateMachine.IsAmendable(Status))
-        {
-            throw new DomainException("order.not_amendable", $"Order cannot be amended while {Status}.");
-        }
-    }
-
-    private void Move(OrderStatus to, DateTimeOffset now, string note, string? actor)
-    {
-        OrderStateMachine.EnsureCanTransition(Status, to);
-        var from = Status;
-        Status = to;
-        Touch(now);
-        _history.Add(new OrderStatusChange(from, to, now, note, actor));
-        Raise(new OrderStatusChanged(Id, Reference, PartnerId, from, to, now));
     }
 }
 

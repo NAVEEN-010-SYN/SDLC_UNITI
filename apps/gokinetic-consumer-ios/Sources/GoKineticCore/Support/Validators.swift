@@ -98,11 +98,14 @@ public enum WiFiCredentialsValidator {
         if passphrase.contains(where: \.isUppercase) { classes += 1 }
         if passphrase.contains(where: \.isNumber) { classes += 1 }
         if passphrase.contains(where: { !$0.isLetter && !$0.isNumber }) { classes += 1 }
-        switch (passphrase.count, classes) {
-        case (16..., 2...), (12..., 3...): return .strong
-        case (10..., 2...), (_, 3...): return .fair
-        default: return .weak
+        let length = passphrase.count
+        if (length >= 16 && classes >= 2) || (length >= 12 && classes >= 3) {
+            return .strong
         }
+        if (length >= 10 && classes >= 2) || classes >= 3 {
+            return .fair
+        }
+        return .weak
     }
 }
 

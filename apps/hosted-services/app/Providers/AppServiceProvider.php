@@ -63,16 +63,18 @@ final class AppServiceProvider extends ServiceProvider
 
     private function registerProvisioningClients(): void
     {
-        $platforms = [
-            VoicePlatformClient::class => 'voice',
-            MailPlatformClient::class => 'mail',
-            WebHostingClient::class => 'webhosting',
-            CertificateAuthorityClient::class => 'certificates',
-        ];
-
-        foreach ($platforms as $clientClass => $platform) {
-            $this->app->singleton($clientClass, fn (Application $app) => new $clientClass($this->transportFor($app, $platform)));
-        }
+        $this->app->singleton(VoicePlatformClient::class, function (Application $app) {
+            return new VoicePlatformClient($this->transportFor($app, 'voice'));
+        });
+        $this->app->singleton(MailPlatformClient::class, function (Application $app) {
+            return new MailPlatformClient($this->transportFor($app, 'mail'));
+        });
+        $this->app->singleton(WebHostingClient::class, function (Application $app) {
+            return new WebHostingClient($this->transportFor($app, 'webhosting'));
+        });
+        $this->app->singleton(CertificateAuthorityClient::class, function (Application $app) {
+            return new CertificateAuthorityClient($this->transportFor($app, 'certificates'));
+        });
     }
 
     private function transportFor(Application $app, string $platform): ProvisioningHttpClient

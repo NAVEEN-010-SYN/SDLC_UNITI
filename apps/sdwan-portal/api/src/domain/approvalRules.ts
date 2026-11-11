@@ -30,7 +30,7 @@ export interface RiskInput {
   type: ChangeType;
   payload: ChangePayload;
   edgeCount: number;
-  /** Edges without an HA peer — a failed change there is a full site outage. */
+  /** Edges without an HA peer - a failed change there is a full site outage. */
   nonHaEdgeCount: number;
   lintFindings?: LintFinding[];
   /** Number of existing rules/policies being replaced, for churn estimation. */
@@ -53,7 +53,9 @@ export function assessRisk(input: RiskInput): RiskAssessment {
   reasons.push(`${input.type} base risk ${points}`);
 
   if (input.edgeCount > 1) {
-    const blast = input.edgeCount >= 10 ? 4 : input.edgeCount >= 3 ? 2 : 1;
+    let blast = 1;
+    if (input.edgeCount >= 10) blast = 4;
+    else if (input.edgeCount >= 3) blast = 2;
     points += blast;
     reasons.push(`affects ${input.edgeCount} edges (+${blast})`);
   }
@@ -73,12 +75,7 @@ export function assessRisk(input: RiskInput): RiskAssessment {
     reasons.push(`${others} lint warning(s) (+${Math.min(2, others)})`);
   }
 
-  const newCount =
-    input.payload.type === 'POLICY_UPDATE'
-      ? input.payload.policies.length
-      : input.payload.type === 'FIREWALL_UPDATE'
-        ? input.payload.rules.length
-        : undefined;
+  const newCount = newItemCount(input.payload);
   if (newCount !== undefined && input.currentItemCount !== undefined && input.currentItemCount > 0) {
     const churn = Math.abs(newCount - input.currentItemCount) / input.currentItemCount;
     if (churn >= 0.5) {
@@ -91,8 +88,20 @@ export function assessRisk(input: RiskInput): RiskAssessment {
     reasons.push('removes all firewall rules (+4)');
   }
 
-  const level: RiskLevel = points >= 10 ? 'CRITICAL' : points >= 7 ? 'HIGH' : points >= 4 ? 'MEDIUM' : 'LOW';
-  return { level, points, reasons };
+  return { level: riskLevelFor(points), points, reasons };
+}
+
+function riskLevelFor(points: number): RiskLevel {
+  if (points >= 10) return 'CRITICAL';
+  if (points >= 7) return 'HIGH';
+  if (points >= 4) return 'MEDIUM';
+  return 'LOW';
+}
+
+function newItemCount(payload: ChangePayload): number | undefined {
+  if (payload.type === 'POLICY_UPDATE') return payload.policies.length;
+  if (payload.type === 'FIREWALL_UPDATE') return payload.rules.length;
+  return undefined;
 }
 
 export interface ApprovalPolicy {
@@ -163,7 +172,7 @@ export function evaluateApprovals(approvals: Approval[], policy: ApprovalPolicy)
   return covered ? 'APPROVED' : 'PENDING';
 }
 
-/** Describes what is still missing — rendered in the UI next to the approve button. */
+/** Describes what is still missing - rendered in the UI next to the approve button. */
 export function outstandingRequirements(approvals: Approval[], policy: ApprovalPolicy): string[] {
   const approves = approvals.filter((a) => a.decision === 'APPROVE');
   const missing: string[] = [];

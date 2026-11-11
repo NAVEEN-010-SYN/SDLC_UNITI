@@ -50,15 +50,26 @@ public sealed class AppointmentService
         var calendar = _calendars.Get(CalendarKind.BusinessHours);
         var now = _clock.UtcNow;
         var earliest = calendar.AddWorkingDays(calendar.LocalDate(now), MinimumNoticeWorkingDays);
-        var start = from is { } f && f > earliest ? f : earliest;
+        var start = earliest;
+        if (from.HasValue && from.Value > earliest)
+        {
+            start = from.Value;
+        }
 
         var slots = await _slots.ListAsync(premise.ExchangeCode, start, start.AddDays(SearchWindowDays), ct);
-        return slots
+        var bookable = slots
             .Where(s => s.Remaining(now) > 0 && calendar.IsWorkingDay(s.Date))
-            .OrderBy(s => s.Date).ThenBy(s => s.Band)
-            .Select(s => new AppointmentSlotDto(s.Id, s.Date, s.Band.ToString().ToUpperInvariant(), s.Remaining(now),
-                order.CommittedDate is not { } committed || s.Date <= committed))
-            .ToList();
+            .OrderBy(s => s.Date)
+            .ThenBy(s => s.Band);
+
+        var result = new List<AppointmentSlotDto>();
+        foreach (var s in bookable)
+        {
+            var meetsCommittedDate = order.CommittedDate is null || s.Date <= order.CommittedDate.Value;
+            result.Add(new AppointmentSlotDto(s.Id, s.Date, s.Band.ToString().ToUpperInvariant(), s.Remaining(now), meetsCommittedDate));
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -96,10 +107,7 @@ public sealed class AppointmentService
             throw new ConflictException(ex.Code, ex.Message);
         }
 
-        if (order.AppointmentSlotId is { } previousId && previousId != slot.Id && await _slots.GetAsync(previousId, ct) is { } previous)
-        {
-            previous.Release(order.Id);
-        }
+        await ReleasePreviousSlotAsync(order, slot.Id, ct);
 
         order.BookAppointment(slot.Id, slot.Date);
         if (order.Status == OrderStatus.Provisioning)
@@ -111,9 +119,23 @@ public sealed class AppointmentService
         return new BookingDto(order.Id, slot.Id, slot.Date, slot.Band.ToString().ToUpperInvariant(), reservation.HoldExpiresAt, order.CommittedDate);
     }
 
+    private async Task ReleasePreviousSlotAsync(Order order, Guid newSlotId, CancellationToken ct)
+    {
+        if (order.AppointmentSlotId is null || order.AppointmentSlotId.Value == newSlotId)
+        {
+            return;
+        }
+
+        var previous = await _slots.GetAsync(order.AppointmentSlotId.Value, ct);
+        if (previous is not null)
+        {
+            previous.Release(order.Id);
+        }
+    }
+
     private static void EnsureNeedsAppointment(Order order)
     {
-        if (order.Type is not (OrderType.Provide or OrderType.Migrate))
+        if (order.Type != OrderType.Provide && order.Type != OrderType.Migrate)
         {
             throw new ConflictException("appointment.not_required", $"{order.Type} orders do not need an engineer appointment.");
         }

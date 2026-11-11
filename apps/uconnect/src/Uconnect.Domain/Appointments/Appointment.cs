@@ -3,7 +3,7 @@ using Uconnect.Domain.Common;
 namespace Uconnect.Domain.Appointments;
 
 /// <summary>
-/// An engineer visit to a service address. Flow: <c>Requested → Confirmed → Completed</c>;
+/// An engineer visit to a service address. Flow: <c>Requested -> Confirmed -> Completed</c>;
 /// a confirmed visit can also end <c>Missed</c> (by the customer or by us) and any open visit can
 /// be <c>Cancelled</c>. Customers may reschedule up to <see cref="MaxReschedules"/> times, no later
 /// than <see cref="ChangeCutoffHours"/> hours before the window starts.

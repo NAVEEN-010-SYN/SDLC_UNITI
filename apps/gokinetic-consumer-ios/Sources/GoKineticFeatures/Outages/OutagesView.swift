@@ -49,7 +49,7 @@ public struct OutagesView: View {
                 .foregroundStyle(tone.color)
             if case .degraded(let issues) = health {
                 ForEach(issues, id: \.self) { issue in
-                    Text("• " + L10n.string(issue.messageKey)).font(.subheadline)
+                    Text("\u{2022} " + L10n.string(issue.messageKey)).font(.subheadline)
                 }
             }
             if health.suggestsTroubleshooting {

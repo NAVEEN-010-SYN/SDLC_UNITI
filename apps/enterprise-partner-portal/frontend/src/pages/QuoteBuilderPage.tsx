@@ -41,9 +41,11 @@ export function toQuoteRequest(draft: QuoteDraft): { request?: QuoteRequest; pro
   }
   if (draft.lines.length === 0) problems.push('Add at least one product');
   draft.lines.forEach((l, i) => {
-    if (!l.siteName.trim()) problems.push(`Line ${i + 1}: enter a site name`);
-    if (!POSTCODE.test(l.sitePostcode.trim())) problems.push(`Line ${i + 1}: enter a valid postcode`);
-    if (!Number.isInteger(l.quantity) || l.quantity < 1 || l.quantity > 100) problems.push(`Line ${i + 1}: quantity 1-100`);
+    const prefix = `Line ${i + 1}`;
+    if (!l.siteName.trim()) problems.push(`${prefix}: enter a site name`);
+    if (!POSTCODE.test(l.sitePostcode.trim())) problems.push(`${prefix}: enter a valid postcode`);
+    const validQuantity = Number.isInteger(l.quantity) && l.quantity >= 1 && l.quantity <= 100;
+    if (!validQuantity) problems.push(`${prefix}: quantity 1-100`);
   });
   if (problems.length) {
     return { problems };
@@ -143,8 +145,19 @@ export function QuoteBuilderPage() {
     }] });
     setSku('');
   };
-  const tooShort = draft.lines.map((l) => products.get(l.sku)).filter((p) => p && p.minTermMonths > draft.termMonths);
+  const tooShort: Product[] = [];
+  for (const l of draft.lines) {
+    const p = products.get(l.sku);
+    if (p && p.minTermMonths > draft.termMonths) {
+      tooShort.push(p);
+    }
+  }
   const errors = fieldErrorsOf(save.error);
+  const needsApproval = preview !== undefined && preview.approvalLevel !== 'NONE';
+  let canSubmit = Boolean(request) && !save.pending && preview !== undefined && preview.blockers.length === 0;
+  if (needsApproval && !draft.justification.trim()) {
+    canSubmit = false;
+  }
 
   async function finish(submit: boolean) {
     if (await save.run(submit)) {
@@ -170,13 +183,13 @@ export function QuoteBuilderPage() {
           <TextField label="Partner discount (%)" inputMode="decimal" value={draft.discount}
             onChange={(e) => update({ discount: e.target.value })} />
         </div>
-        {draft.dealId && <p>Linked to a protected deal registration — your full discount allowance applies.</p>}
+        {draft.dealId && <p>Linked to a protected deal registration &mdash; your full discount allowance applies.</p>}
       </section>
 
       <section className="panel" aria-label="Products">
         <h2>Products</h2>
         <div className="toolbar">
-          <SelectField label="Add product" value={sku} placeholder="Choose a product…"
+          <SelectField label="Add product" value={sku} placeholder={'Choose a product\u2026'}
             options={(catalog.data ?? []).map((p) => ({ value: p.sku, label: `${p.name} (${p.sku})` }))}
             onChange={(e) => setSku(e.target.value)} />
           <button type="button" disabled={!products.get(sku)} onClick={() => addLine(products.get(sku)!)}>Add</button>
@@ -197,7 +210,7 @@ export function QuoteBuilderPage() {
         })}
         {tooShort.length > 0 && (
           <div className="banner banner--error">
-            {tooShort.map((p) => `${p!.name} needs at least ${p!.minTermMonths} months`).join('; ')}
+            {tooShort.map((p) => `${p.name} needs at least ${p.minTermMonths} months`).join('; ')}
           </div>
         )}
       </section>
@@ -208,7 +221,7 @@ export function QuoteBuilderPage() {
       <ErrorBanner error={previewError} />
       {preview && <PricingSummary preview={preview} />}
 
-      {preview && preview.approvalLevel !== 'NONE' && (
+      {needsApproval && (
         <section className="panel">
           <label htmlFor="justification">Justification for Uniti approvers</label>
           <textarea id="justification" rows={3} style={{ width: '100%' }} value={draft.justification}
@@ -220,10 +233,9 @@ export function QuoteBuilderPage() {
       <div className="toolbar">
         <button type="button" disabled={!request || save.pending} onClick={() => finish(false)}>Save draft</button>
         <button className="primary" type="button"
-          disabled={!request || save.pending || !preview || preview.blockers.length > 0
-            || (preview.approvalLevel !== 'NONE' && !draft.justification.trim())}
+          disabled={!canSubmit}
           onClick={() => finish(true)}>
-          {preview && preview.approvalLevel !== 'NONE' ? 'Submit for approval' : 'Save & approve'}
+          {needsApproval ? 'Submit for approval' : 'Save & approve'}
         </button>
       </div>
     </>

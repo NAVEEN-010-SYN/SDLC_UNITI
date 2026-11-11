@@ -17,14 +17,16 @@ final class DnsRecordRequest extends ApiFormRequest
 {
     public function rules(): array
     {
-        $customerTypes = array_values(array_filter(
-            DnsRecordType::cases(),
-            static fn (DnsRecordType $t) => $t->isCustomerManaged(),
-        ));
+        $customerTypes = [];
+        foreach (DnsRecordType::cases() as $type) {
+            if ($type->isCustomerManaged()) {
+                $customerTypes[] = $type->value;
+            }
+        }
 
         $rules = [
             'name' => ['nullable', 'string', 'max:253'],
-            'type' => ['required', Rule::in(array_map(static fn (DnsRecordType $t) => $t->value, $customerTypes))],
+            'type' => ['required', Rule::in($customerTypes)],
             'value' => ['required', 'string', 'max:4000'],
             'ttl' => ['nullable', 'integer'],
             'priority' => ['nullable', 'integer', 'between:0,65535'],

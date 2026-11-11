@@ -74,48 +74,12 @@ public static class BulkOrderCsvParser
                 continue;
             }
 
-            string? Get(string column) => columns.TryGetValue(column, out var idx) ? NullIfBlank(record.Fields[idx]) : null;
-
             var rowErrors = new List<BulkRowError>();
-            var requestedDate = ParseDate(Get("requested_date"), record.LineNumber, rowErrors);
-            var serviceId = ParseGuid(Get("existing_service_id"), record.LineNumber, rowErrors);
-
-            var request = new PlaceOrderRequest(
-                Get("partner_reference") ?? string.Empty,
-                Get("order_type") ?? string.Empty,
-                Get("uprn") ?? string.Empty,
-                Get("product_code"),
-                Get("care_level"),
-                serviceId,
-                Get("migration_auth_code"),
-                requestedDate ?? today);
-
-            var (validated, fieldErrors) = OrderRequestValidator.Validate(request, today);
-            rowErrors.AddRange(fieldErrors
-                .Where(e => !(requestedDate is null && e.Field == "requestedDate"))
-                .Select(e => new BulkRowError(record.LineNumber, ToColumn(e.Field), e.Code, e.Message)));
+            var validated = ValidateRow(record, columns, today, rowErrors);
 
             if (validated is not null && rowErrors.Count == 0)
             {
-                if (seenReferences.TryGetValue(validated.PartnerReference, out var firstRefLine))
-                {
-                    rowErrors.Add(new BulkRowError(record.LineNumber, "partner_reference", "duplicate_in_file",
-                        $"Partner reference also used on line {firstRefLine}."));
-                }
-                else
-                {
-                    seenReferences[validated.PartnerReference] = record.LineNumber;
-                }
-
-                if (seenUprns.TryGetValue(validated.Uprn, out var firstUprnLine))
-                {
-                    rowErrors.Add(new BulkRowError(record.LineNumber, "uprn", "duplicate_in_file",
-                        $"UPRN also ordered on line {firstUprnLine}; only one order per premise is allowed."));
-                }
-                else
-                {
-                    seenUprns[validated.Uprn] = record.LineNumber;
-                }
+                CheckDuplicates(record.LineNumber, validated, seenReferences, seenUprns, rowErrors);
             }
 
             if (rowErrors.Count == 0 && validated is not null)
@@ -127,6 +91,74 @@ public static class BulkOrderCsvParser
         }
 
         return new BulkParseResult(parsed, errors, dataRows.Count);
+    }
+
+    /// <summary>Builds and validates the order request for one data row; adds any problems to rowErrors.</summary>
+    private static ValidatedOrderRequest? ValidateRow(CsvReader.CsvRecord record, Dictionary<string, int> columns, DateOnly today,
+        List<BulkRowError> rowErrors)
+    {
+        var line = record.LineNumber;
+        var requestedDate = ParseDate(GetField(record, columns, "requested_date"), line, rowErrors);
+        var serviceId = ParseGuid(GetField(record, columns, "existing_service_id"), line, rowErrors);
+
+        var request = new PlaceOrderRequest(
+            GetField(record, columns, "partner_reference") ?? string.Empty,
+            GetField(record, columns, "order_type") ?? string.Empty,
+            GetField(record, columns, "uprn") ?? string.Empty,
+            GetField(record, columns, "product_code"),
+            GetField(record, columns, "care_level"),
+            serviceId,
+            GetField(record, columns, "migration_auth_code"),
+            requestedDate ?? today);
+
+        var (validated, fieldErrors) = OrderRequestValidator.Validate(request, today);
+        foreach (var e in fieldErrors)
+        {
+            // A missing or malformed date was already reported by ParseDate.
+            if (requestedDate is null && e.Field == "requestedDate")
+            {
+                continue;
+            }
+
+            rowErrors.Add(new BulkRowError(line, ToColumn(e.Field), e.Code, e.Message));
+        }
+
+        return validated;
+    }
+
+    private static string? GetField(CsvReader.CsvRecord record, Dictionary<string, int> columns, string column)
+    {
+        if (!columns.TryGetValue(column, out var idx))
+        {
+            return null;
+        }
+
+        return NullIfBlank(record.Fields[idx]);
+    }
+
+    /// <summary>Cross-row checks: a partner reference or UPRN may appear only once per file.</summary>
+    private static void CheckDuplicates(int line, ValidatedOrderRequest validated, Dictionary<string, int> seenReferences,
+        Dictionary<string, int> seenUprns, List<BulkRowError> rowErrors)
+    {
+        if (seenReferences.TryGetValue(validated.PartnerReference, out var firstRefLine))
+        {
+            rowErrors.Add(new BulkRowError(line, "partner_reference", "duplicate_in_file",
+                $"Partner reference also used on line {firstRefLine}."));
+        }
+        else
+        {
+            seenReferences[validated.PartnerReference] = line;
+        }
+
+        if (seenUprns.TryGetValue(validated.Uprn, out var firstUprnLine))
+        {
+            rowErrors.Add(new BulkRowError(line, "uprn", "duplicate_in_file",
+                $"UPRN also ordered on line {firstUprnLine}; only one order per premise is allowed."));
+        }
+        else
+        {
+            seenUprns[validated.Uprn] = line;
+        }
     }
 
     /// <summary>A template the portal offers for download.</summary>

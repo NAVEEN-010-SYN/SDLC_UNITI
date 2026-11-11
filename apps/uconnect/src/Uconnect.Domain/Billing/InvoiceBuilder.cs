@@ -90,7 +90,7 @@ public static class InvoiceBuilder
         var to = until < period.End ? until : period.End;
         var partial = from != period.Start || to != period.End;
         var description = partial
-            ? $"{plan.Name} ({service.ServiceReference}) {from:dd MMM} – {to.AddDays(-1):dd MMM}, part period"
+            ? $"{plan.Name} ({service.ServiceReference}) {from:dd MMM} \u2013 {to.AddDays(-1):dd MMM}, part period"
             : $"{plan.Name} ({service.ServiceReference}) monthly charge";
 
         invoice.AddLine(InvoiceLineType.Recurring, description, amount, 1, service.Id, taxable: true, from, to);

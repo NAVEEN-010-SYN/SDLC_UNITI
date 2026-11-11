@@ -7,6 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 import org.openqa.selenium.Capabilities;
 import org.openqa.selenium.Dimension;
+import org.openqa.selenium.MutableCapabilities;
 import org.openqa.selenium.PageLoadStrategy;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.chrome.ChromeDriver;
@@ -56,11 +57,13 @@ public final class DriverFactory {
     }
 
     private WebDriver local(Browser browser, Capabilities capabilities) {
-        return switch (browser) {
-            case CHROME -> new ChromeDriver((ChromeOptions) capabilities);
-            case FIREFOX -> new FirefoxDriver((FirefoxOptions) capabilities);
-            case EDGE -> new EdgeDriver((EdgeOptions) capabilities);
-        };
+        if (browser == Browser.CHROME) {
+            return new ChromeDriver((ChromeOptions) capabilities);
+        }
+        if (browser == Browser.FIREFOX) {
+            return new FirefoxDriver((FirefoxOptions) capabilities);
+        }
+        return new EdgeDriver((EdgeOptions) capabilities);
     }
 
     private WebDriver remote(Capabilities capabilities) {
@@ -74,51 +77,61 @@ public final class DriverFactory {
     }
 
     private Capabilities capabilitiesFor(Browser browser) {
-        boolean headless = config.headless();
-        String size = config.intValue("window.width", 1440) + "," + config.intValue("window.height", 900);
-        return switch (browser) {
-            case CHROME -> {
-                ChromeOptions options = new ChromeOptions();
-                options.setPageLoadStrategy(PageLoadStrategy.NORMAL);
-                options.addArguments("--window-size=" + size, "--disable-search-engine-choice-screen", "--lang=en-US");
-                if (headless) {
-                    options.addArguments("--headless=new");
-                }
-                options.setExperimentalOption("prefs", Map.of(
-                        "download.prompt_for_download", false,
-                        "credentials_enable_service", false,
-                        "profile.password_manager_enabled", false));
-                applyGridMetadata(options::setCapability);
-                yield options;
-            }
-            case FIREFOX -> {
-                FirefoxOptions options = new FirefoxOptions();
-                options.setPageLoadStrategy(PageLoadStrategy.NORMAL);
-                if (headless) {
-                    options.addArguments("-headless");
-                }
-                options.addPreference("intl.accept_languages", "en-US");
-                applyGridMetadata(options::setCapability);
-                yield options;
-            }
-            case EDGE -> {
-                EdgeOptions options = new EdgeOptions();
-                options.addArguments("--window-size=" + size);
-                if (headless) {
-                    options.addArguments("--headless=new");
-                }
-                applyGridMetadata(options::setCapability);
-                yield options;
-            }
-        };
+        MutableCapabilities options;
+        if (browser == Browser.CHROME) {
+            options = chromeOptions();
+        } else if (browser == Browser.FIREFOX) {
+            options = firefoxOptions();
+        } else {
+            options = edgeOptions();
+        }
+        applyGridMetadata(options);
+        return options;
     }
 
-    private void applyGridMetadata(java.util.function.BiConsumer<String, Object> setter) {
+    private String windowSize() {
+        return config.intValue("window.width", 1440) + "," + config.intValue("window.height", 900);
+    }
+
+    private ChromeOptions chromeOptions() {
+        ChromeOptions options = new ChromeOptions();
+        options.setPageLoadStrategy(PageLoadStrategy.NORMAL);
+        options.addArguments("--window-size=" + windowSize(), "--disable-search-engine-choice-screen", "--lang=en-US");
+        if (config.headless()) {
+            options.addArguments("--headless=new");
+        }
+        options.setExperimentalOption("prefs", Map.of(
+                "download.prompt_for_download", false,
+                "credentials_enable_service", false,
+                "profile.password_manager_enabled", false));
+        return options;
+    }
+
+    private FirefoxOptions firefoxOptions() {
+        FirefoxOptions options = new FirefoxOptions();
+        options.setPageLoadStrategy(PageLoadStrategy.NORMAL);
+        if (config.headless()) {
+            options.addArguments("-headless");
+        }
+        options.addPreference("intl.accept_languages", "en-US");
+        return options;
+    }
+
+    private EdgeOptions edgeOptions() {
+        EdgeOptions options = new EdgeOptions();
+        options.addArguments("--window-size=" + windowSize());
+        if (config.headless()) {
+            options.addArguments("--headless=new");
+        }
+        return options;
+    }
+
+    private void applyGridMetadata(MutableCapabilities options) {
         if (!config.remote()) {
             return;
         }
-        setter.accept("se:name", "uniti-selfcare-" + config.environment());
-        setter.accept("se:recordVideo", config.boolValue("grid.record.video", false));
+        options.setCapability("se:name", "uniti-selfcare-" + config.environment());
+        options.setCapability("se:recordVideo", config.boolValue("grid.record.video", false));
     }
 
     private void configure(WebDriver driver) {

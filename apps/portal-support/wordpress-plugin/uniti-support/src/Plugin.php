@@ -28,9 +28,12 @@ final class Plugin
         (new AvailabilityChecker($api))->register();
         (new SearchEndpoint())->register();
 
-        add_action('init', static function (): void {
-            load_plugin_textdomain('uniti-support', false, dirname(plugin_basename(UNITI_SUPPORT_FILE)) . '/languages');
-        });
+        add_action('init', [self::class, 'loadTextDomain']);
+    }
+
+    public static function loadTextDomain(): void
+    {
+        load_plugin_textdomain('uniti-support', false, dirname(plugin_basename(UNITI_SUPPORT_FILE)) . '/languages');
     }
 
     public static function activate(): void

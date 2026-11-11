@@ -7,7 +7,7 @@ export interface TicketSlaTarget {
   responseMinutes: number;
   /** Minutes until resolution is due. */
   resolutionMinutes: number;
-  /** 24x7 clocks run continuously; business-hours clocks only tick Mon–Fri 08:00–18:00 UTC. */
+  /** 24x7 clocks run continuously; business-hours clocks only tick Mon-Fri 08:00-18:00 UTC. */
   clock: '24x7' | 'BUSINESS_HOURS';
 }
 

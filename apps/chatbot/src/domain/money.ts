@@ -1,6 +1,6 @@
 import { Money } from './types';
 
-const CURRENCY_SYMBOLS: Record<string, string> = { GBP: '£', USD: '$', EUR: '€' };
+const CURRENCY_SYMBOLS: Record<string, string> = { GBP: '\u00A3', USD: '$', EUR: '\u20AC' };
 
 /** Formats integer minor units without ever going through floating point arithmetic. */
 export function formatMoney(money: Money): string {

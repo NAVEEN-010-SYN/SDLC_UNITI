@@ -77,12 +77,18 @@ export function FeatureFlagProvider({ api, overrides, children }: FeatureFlagPro
   useEffect(() => {
     if (status === 'loading') return undefined;
     let cancelled = false;
-    api
-      .get<unknown>('/feature-flags')
-      .then((payload) => !cancelled && setDefinitions(parseFlags(payload)))
-      // Flags fail closed: if the service is down, new features stay off.
-      .catch(() => !cancelled && setDefinitions({}))
-      .finally(() => !cancelled && setReady(true));
+    const load = async () => {
+      try {
+        const payload = await api.get<unknown>('/feature-flags');
+        if (!cancelled) setDefinitions(parseFlags(payload));
+      } catch {
+        // Flags fail closed: if the service is down, new features stay off.
+        if (!cancelled) setDefinitions({});
+      } finally {
+        if (!cancelled) setReady(true);
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };

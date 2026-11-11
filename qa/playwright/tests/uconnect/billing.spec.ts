@@ -51,9 +51,10 @@ test.describe('Billing @uconnect', () => {
 
     const items = await billing.invoiceLineItems();
     expect(items.length).toBeGreaterThan(0);
-    const sumMinor = items
-      .map((item) => Math.round(Number(item.amount.replace(/[^0-9.-]/g, '')) * 100))
-      .reduce((a, b) => a + b, 0);
+    let sumMinor = 0;
+    for (const item of items) {
+      sumMinor += Math.round(Number(item.amount.replace(/[^0-9.-]/g, '')) * 100);
+    }
     expect(sumMinor).toBe(invoice.amountDue.amountMinor);
     await expect(page.getByTestId('invoice-total')).toHaveText(formatMoney(invoice.amountDue));
   });

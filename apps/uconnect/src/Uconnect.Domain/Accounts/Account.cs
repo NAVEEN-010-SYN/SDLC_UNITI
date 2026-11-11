@@ -3,7 +3,7 @@ using Uconnect.Domain.Common;
 namespace Uconnect.Domain.Accounts;
 
 /// <summary>
-/// The billing entity — a consumer household or a business. Owns contact details, billing
+/// The billing entity - a consumer household or a business. Owns contact details, billing
 /// preferences and lifecycle status. Services, invoices and tickets reference it by id.
 /// </summary>
 public sealed class Account : AggregateRoot

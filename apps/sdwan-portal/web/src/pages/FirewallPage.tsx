@@ -9,6 +9,13 @@ import { useAsync, useMutation } from '../hooks/useAsync';
 import { buildRule, EMPTY_RULE_FORM, FirewallRuleForm, formatCidrs, formatPorts, FormErrors } from '../lib/firewallDraft';
 import { humanize } from '../lib/format';
 
+/** Maps a lint finding severity to a status pill tone. */
+function severityStatus(severity: string): string {
+  if (severity === 'ERROR') return 'FAILED';
+  if (severity === 'WARNING') return 'DEGRADED';
+  return 'STANDBY';
+}
+
 function RuleForm({ existing, onAdd }: { existing: FirewallRule[]; onAdd: (r: FirewallRule) => void }) {
   const [form, setForm] = useState<FirewallRuleForm>(EMPTY_RULE_FORM);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -128,11 +135,11 @@ export function FirewallPage() {
                 <td>{r.protocol}</td>
                 <td>{formatCidrs(r.sourceCidrs)}</td>
                 <td>{formatCidrs(r.destinationCidrs)}</td>
-                <td>{r.protocol === 'ICMP' ? '—' : formatPorts(r.destinationPorts)}</td>
+                <td>{r.protocol === 'ICMP' ? '\u2014' : formatPorts(r.destinationPorts)}</td>
                 <td>
                   {(findingsByRule.get(r.id) ?? []).map((f) => (
                     <div key={`${f.code}-${f.message}`} title={f.message}>
-                      <StatusPill value={f.severity === 'ERROR' ? 'FAILED' : f.severity === 'WARNING' ? 'DEGRADED' : 'STANDBY'} label={humanize(f.code ?? f.severity)} />
+                      <StatusPill value={severityStatus(f.severity)} label={humanize(f.code ?? f.severity)} />
                     </div>
                   ))}
                 </td>

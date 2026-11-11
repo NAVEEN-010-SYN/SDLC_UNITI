@@ -49,7 +49,7 @@ function ScheduleForm({ cr, onSchedule, pending }: { cr: ChangeRequestView; onSc
       <ul>
         {windows.data?.map((w) => (
           <li key={`${w.windowId}-${w.start}`}>
-            {w.name}: {formatDateTime(w.start)} – {formatDateTime(w.end)}{' '}
+            {w.name}: {formatDateTime(w.start)} &ndash; {formatDateTime(w.end)}{' '}
             <button type="button" disabled={pending} onClick={() => onSchedule(new Date(Math.max(Date.parse(w.start), Date.now() + 60_000)).toISOString(), w.windowId)}>
               Use this window
             </button>
@@ -82,7 +82,7 @@ export function ChangeRequestDetailPage() {
 
   if (cr.error) return <ProblemBanner error={cr.error} onRetry={cr.reload} />;
   const c = cr.data;
-  if (!c) return <p aria-busy="true">Loading change request…</p>;
+  if (!c) return <p aria-busy="true">Loading change request&hellip;</p>;
 
   const isOwner = user?.userId === c.requestedBy;
   const blocker = decisionBlocker(c, user);
@@ -94,8 +94,8 @@ export function ChangeRequestDetailPage() {
         {c.title} <StatusPill value={c.status} />
       </h1>
       <p className="meta">
-        {humanize(c.type)} on {c.edgeIds.length} edge(s) · requested by {c.requestedBy} on {formatDateTime(c.createdAt)}
-        {c.emergency && ' · emergency'}
+        {humanize(c.type)} on {c.edgeIds.length} edge(s) &middot; requested by {c.requestedBy} on {formatDateTime(c.createdAt)}
+        {c.emergency && ' \u00B7 emergency'}
       </p>
       {c.description && <p>{c.description}</p>}
 
@@ -159,7 +159,7 @@ export function ChangeRequestDetailPage() {
           <ul>
             {c.results.map((r) => (
               <li key={r.edgeId}>
-                <StatusPill value={r.ok ? 'COMPLETED' : 'FAILED'} /> {r.edgeId} {r.error && `— ${r.error}`}
+                <StatusPill value={r.ok ? 'COMPLETED' : 'FAILED'} /> {r.edgeId} {r.error && `\u2014 ${r.error}`}
               </li>
             ))}
           </ul>
@@ -170,9 +170,9 @@ export function ChangeRequestDetailPage() {
       <ol className="timeline">
         {c.history.map((h) => (
           <li key={`${h.at}-${h.to}`}>
-            <time dateTime={h.at}>{formatDateTime(h.at)}</time> {h.from ? `${humanize(h.from)} → ` : ''}
+            <time dateTime={h.at}>{formatDateTime(h.at)}</time> {h.from ? `${humanize(h.from)} \u2192 ` : ''}
             {humanize(h.to)} by {h.by}
-            {h.note && ` — ${h.note}`}
+            {h.note && ` \u2014 ${h.note}`}
           </li>
         ))}
       </ol>

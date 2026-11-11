@@ -3,6 +3,7 @@ package com.uniti.qa.pages.uconnect;
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
@@ -33,7 +34,11 @@ public final class InvoicesPage extends BasePage {
     }
 
     public List<InvoiceRow> rows() {
-        return tableRows(TABLE).stream().map(InvoiceRow::from).toList();
+        List<InvoiceRow> rows = new ArrayList<>();
+        for (WebElement row : tableRows(TABLE)) {
+            rows.add(InvoiceRow.from(row));
+        }
+        return rows;
     }
 
     public InvoicesPage filter(String status) {

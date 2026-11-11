@@ -14,7 +14,7 @@ import { AuthFlowError, AuthService, sanitiseReturnUrl } from '../../core/auth/a
       }
       <p>Manage your sites, services, orders and invoices in one place.</p>
       <button type="button" class="primary" (click)="signIn()" [disabled]="redirecting()">
-        {{ redirecting() ? 'Redirecting…' : 'Sign in' }}
+        {{ redirecting() ? 'Redirecting\u2026' : 'Sign in' }}
       </button>
     </section>
   `
@@ -44,7 +44,7 @@ export class LoginComponent {
         <p>{{ message }}</p>
         <a routerLink="/login">Try again</a>
       } @else {
-        <p>Signing you in…</p>
+        <p>Signing you in\u2026</p>
       }
     </section>
   `

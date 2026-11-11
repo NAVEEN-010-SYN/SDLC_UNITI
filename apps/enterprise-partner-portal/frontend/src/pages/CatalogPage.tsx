@@ -9,6 +9,16 @@ import { humanise } from '../lib/format';
 
 const CATEGORIES: ProductCategory[] = ['BROADBAND', 'VOICE', 'SDWAN', 'HOSTED', 'ADD_ON'];
 
+function formatSpeed(mbps?: number | null): string {
+  if (!mbps) {
+    return '\u2014';
+  }
+  if (mbps >= 1000) {
+    return `${mbps / 1000} Gbps`;
+  }
+  return `${mbps} Mbps`;
+}
+
 export function CatalogPage() {
   const api = useEndpoints();
   const [category, setCategory] = useState<ProductCategory | ''>('');
@@ -38,7 +48,7 @@ export function CatalogPage() {
                 <td>{p.name}</td>
                 <td>{p.sku}</td>
                 <td>{humanise(p.category)}</td>
-                <td>{p.bandwidthMbps ? (p.bandwidthMbps >= 1000 ? `${p.bandwidthMbps / 1000} Gbps` : `${p.bandwidthMbps} Mbps`) : '—'}</td>
+                <td>{formatSpeed(p.bandwidthMbps)}</td>
                 <td style={{ textAlign: 'right' }}><Money minor={p.monthlyPriceMinor} currency={p.currency} /></td>
                 <td style={{ textAlign: 'right' }}><Money minor={p.installPriceMinor} currency={p.currency} /></td>
                 <td>{p.minTermMonths} months</td>

@@ -77,7 +77,7 @@ public struct PendingPlanChange: Codable, Hashable, Sendable {
     }
 }
 
-/// Order lifecycle: DRAFT → SUBMITTED → VALIDATED → PROVISIONING → ACTIVE
+/// Order lifecycle: DRAFT -> SUBMITTED -> VALIDATED -> PROVISIONING -> ACTIVE
 /// (or CANCELLED / FAILED).
 public enum OrderStatus: String, Codable, Sendable, CaseIterable {
     case draft = "DRAFT"

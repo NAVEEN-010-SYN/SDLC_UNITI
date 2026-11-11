@@ -25,12 +25,13 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 /**
  * Quote lifecycle: build from the catalog, price, route for approval according to the discount
@@ -223,10 +224,10 @@ public class QuoteService {
     public void expireLapsedQuotes() {
         List<Quote> lapsed = quotes.findByStatusInAndValidUntilBefore(
                 EnumSet.of(QuoteStatus.APPROVED, QuoteStatus.SENT), Instant.now(clock));
-        lapsed.forEach(q -> {
+        for (Quote q : lapsed) {
             q.transitionTo(QuoteStatus.EXPIRED);
             q.setClosedReason("Validity period lapsed");
-        });
+        }
         if (!lapsed.isEmpty()) {
             log.info("quotes_expired count={}", lapsed.size());
         }
@@ -267,10 +268,7 @@ public class QuoteService {
      * products whose minimum term exceeds the quote term are rejected up front.
      */
     List<QuoteLine> buildLines(List<QuoteLineRequest> requested, int termMonths, String currency) {
-        Map<String, CatalogProduct> bySku = catalog.findBySkuIn(
-                        requested.stream().map(QuoteLineRequest::sku).collect(Collectors.toSet())).stream()
-                .filter(CatalogProduct::isActive)
-                .collect(Collectors.toMap(CatalogProduct::getSku, Function.identity()));
+        Map<String, CatalogProduct> bySku = activeProductsBySku(requested);
         List<String> problems = new ArrayList<>();
         List<QuoteLine> lines = new ArrayList<>();
         int lineNo = 1;
@@ -299,6 +297,20 @@ public class QuoteService {
                     "One or more quote lines are invalid").withDetail("problems", problems);
         }
         return lines;
+    }
+
+    private Map<String, CatalogProduct> activeProductsBySku(List<QuoteLineRequest> requested) {
+        Set<String> skus = new HashSet<>();
+        for (QuoteLineRequest r : requested) {
+            skus.add(r.sku());
+        }
+        Map<String, CatalogProduct> bySku = new HashMap<>();
+        for (CatalogProduct product : catalog.findBySkuIn(skus)) {
+            if (product.isActive()) {
+                bySku.put(product.getSku(), product);
+            }
+        }
+        return bySku;
     }
 
     private void assertIndependentApprover(Quote quote, CurrentUser manager) {

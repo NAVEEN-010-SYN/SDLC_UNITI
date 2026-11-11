@@ -23,7 +23,9 @@ export function accessLog(logger: Logger): RequestHandler {
     const started = process.hrtime.bigint();
     res.on('finish', () => {
       const ms = Number(process.hrtime.bigint() - started) / 1e6;
-      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+      let level: 'error' | 'warn' | 'info' = 'info';
+      if (res.statusCode >= 500) level = 'error';
+      else if (res.statusCode >= 400) level = 'warn';
       logger[level]('http request', {
         method: req.method,
         path: req.route?.path ? `${req.baseUrl}${req.route.path}` : req.path,

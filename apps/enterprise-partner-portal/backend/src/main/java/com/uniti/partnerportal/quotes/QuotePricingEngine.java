@@ -7,11 +7,11 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 /**
  * Prices a quote and decides the approval it needs. Pure and deterministic so every rule can be
@@ -133,10 +133,7 @@ public class QuotePricingEngine {
         Money chargedNrc = waived ? Money.zero(ccy) : nrc;
         Money tcv = netMrc.times(input.termMonths()).plus(chargedNrc);
 
-        BigDecimal effective = list.isZero() ? BigDecimal.ZERO
-                : BigDecimal.valueOf(list.amountMinor() - netMrc.amountMinor())
-                .multiply(HUNDRED)
-                .divide(BigDecimal.valueOf(list.amountMinor()), 3, RoundingMode.HALF_EVEN);
+        BigDecimal effective = effectivePercent(list, netMrc);
 
         BigDecimal allowance = selfApprovedAllowance(input.tier(), input.hasProtectedDeal());
         ApprovalLevel level = approvalLevel(requested, allowance);
@@ -169,10 +166,21 @@ public class QuotePricingEngine {
     }
 
     static int distinctSites(List<QuoteLine> lines) {
-        return lines.stream()
-                .map(l -> l.getSitePostcode().replaceAll("\\s+", "").toUpperCase() + "|"
-                        + l.getSiteName().trim().toLowerCase())
-                .collect(Collectors.toSet())
-                .size();
+        Set<String> keys = new HashSet<>();
+        for (QuoteLine l : lines) {
+            String postcode = l.getSitePostcode().replaceAll("\\s+", "").toUpperCase();
+            String name = l.getSiteName().trim().toLowerCase();
+            keys.add(postcode + "|" + name);
+        }
+        return keys.size();
+    }
+
+    private static BigDecimal effectivePercent(Money list, Money netMrc) {
+        if (list.isZero()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal discount = BigDecimal.valueOf(list.amountMinor() - netMrc.amountMinor());
+        return discount.multiply(HUNDRED)
+                .divide(BigDecimal.valueOf(list.amountMinor()), 3, RoundingMode.HALF_EVEN);
     }
 }

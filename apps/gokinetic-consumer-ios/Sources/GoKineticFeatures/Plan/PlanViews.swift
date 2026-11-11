@@ -73,7 +73,7 @@ public struct PlanView: View {
                         Text(option.plan.name).font(Theme.Typography.headline)
                         if option.isRecommended { StatusBadge(L10n.string("plan.recommended"), tone: .success) }
                     }
-                    Text(option.plan.speedLabel + (option.speedMultiplierText.map { " · \($0)" } ?? ""))
+                    Text(option.plan.speedLabel + (option.speedMultiplierText.map { " \u{00B7} \($0)" } ?? ""))
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -124,7 +124,7 @@ public struct UpgradeFlowView: View {
             Picker(L10n.string("upgrade.choosePlan"), selection: $viewModel.selectedPlanId) {
                 Text(L10n.string("upgrade.choosePlan")).tag(String?.none)
                 ForEach(viewModel.options) { plan in
-                    Text("\(plan.name) · \(plan.speedLabel)").tag(Optional(plan.id))
+                    Text("\(plan.name) \u{00B7} \(plan.speedLabel)").tag(Optional(plan.id))
                 }
             }
             Picker(L10n.string("upgrade.timing"), selection: $viewModel.timing) {
@@ -174,7 +174,7 @@ public struct UpgradeFlowView: View {
     }
 }
 
-/// Horizontal tracker along DRAFT → SUBMITTED → VALIDATED → PROVISIONING → ACTIVE.
+/// Horizontal tracker along DRAFT -> SUBMITTED -> VALIDATED -> PROVISIONING -> ACTIVE.
 struct OrderProgressView: View {
     let status: OrderStatus
 

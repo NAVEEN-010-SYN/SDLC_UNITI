@@ -29,11 +29,12 @@ final class NumberController extends Controller
     {
         [$page, $pageSize] = Page::paramsFrom($request);
         $contains = $this->stringQuery($request, 'contains', 15);
+        $status = $this->enumQuery($request, 'status', ProvisioningStatus::class);
         $result = $this->numbers->list(
             $accountId,
             $page,
             $pageSize,
-            $this->enumQuery($request, 'status', ProvisioningStatus::class)?->value,
+            $status === null ? null : $status->value,
             $this->boolQuery($request, 'assigned'),
             $contains === null ? null : preg_replace('/\D+/', '', $contains),
         );

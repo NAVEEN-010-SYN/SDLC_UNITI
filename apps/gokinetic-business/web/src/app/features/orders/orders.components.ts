@@ -99,7 +99,7 @@ export class OrdersListComponent {
   imports: [StatusBadgeComponent, MoneyPipe, DatePipe, ProblemAlertComponent, RouterLink, ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a routerLink="/orders">← Orders</a>
+    <a routerLink="/orders">\u2190 Orders</a>
     <gkb-problem-alert [problem]="problem()" />
     @if (order(); as o) {
       <header class="page-header">
@@ -131,7 +131,7 @@ export class OrdersListComponent {
       <h2>History</h2>
       <ol class="timeline">
         @for (h of o.history; track h.changedAt + h.toStatus) {
-          <li><time>{{ h.changedAt | date: 'd MMM y, HH:mm' }}</time> <gkb-status-badge [status]="h.toStatus" /> @if (h.reason) { – {{ h.reason }} }</li>
+          <li><time>{{ h.changedAt | date: 'd MMM y, HH:mm' }}</time> <gkb-status-badge [status]="h.toStatus" /> @if (h.reason) { \u2013 {{ h.reason }} }</li>
         }
       </ol>
     }
@@ -146,12 +146,13 @@ export class OrderDetailComponent {
   readonly reason = new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(3)] });
 
   private readonly refresh = new Subject<void>();
-  readonly order = toSignal(
-    merge(toObservable(this.id), this.refresh.pipe(map(() => this.id()))).pipe(
-      switchMap((id) => this.api.get(id).pipe(catchError((p: ApiProblem) => (this.problem.set(p), of(null))))),
-      startWith(null)
-    )
+  // Reload when the route id changes or after an action.
+  private readonly orderIds$ = merge(toObservable(this.id), this.refresh.pipe(map(() => this.id())));
+  private readonly order$ = this.orderIds$.pipe(
+    switchMap((id) => this.loadOrder(id)),
+    startWith(null)
   );
+  readonly order = toSignal(this.order$);
 
   readonly actions = computed(() => {
     const o = this.order();
@@ -162,15 +163,9 @@ export class OrderDetailComponent {
 
   run(action: OrderAction): void {
     const o = this.order() as OrderDetail;
-    const calls: Record<OrderAction, () => Observable<Order>> = {
-      submit: () => this.api.submit(o.id),
-      approve: () => this.api.approve(o.id),
-      reject: () => this.api.reject(o.id, this.reason.value),
-      cancel: () => this.api.cancel(o.id, this.reason.value)
-    };
     this.busy.set(true);
     this.problem.set(null);
-    calls[action]().subscribe({
+    this.callFor(action, o.id).subscribe({
       next: () => {
         this.busy.set(false);
         this.reason.reset();
@@ -181,5 +176,21 @@ export class OrderDetailComponent {
         this.problem.set(p);
       }
     });
+  }
+
+  private callFor(action: OrderAction, orderId: string): Observable<Order> {
+    if (action === 'submit') return this.api.submit(orderId);
+    if (action === 'approve') return this.api.approve(orderId);
+    if (action === 'reject') return this.api.reject(orderId, this.reason.value);
+    return this.api.cancel(orderId, this.reason.value);
+  }
+
+  private loadOrder(id: string): Observable<OrderDetail | null> {
+    return this.api.get(id).pipe(
+      catchError((p: ApiProblem) => {
+        this.problem.set(p);
+        return of(null);
+      })
+    );
   }
 }

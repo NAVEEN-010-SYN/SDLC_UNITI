@@ -4,11 +4,11 @@ const dateFmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short
 const dateTimeFmt = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeStyle: 'short' });
 
 export function formatDate(iso?: string | null): string {
-  return iso ? dateFmt.format(new Date(iso)) : '—';
+  return iso ? dateFmt.format(new Date(iso)) : '\u2014';
 }
 
 export function formatDateTime(iso?: string | null): string {
-  return iso ? dateTimeFmt.format(new Date(iso)) : '—';
+  return iso ? dateTimeFmt.format(new Date(iso)) : '\u2014';
 }
 
 export function formatPercent(value?: number | null): string {

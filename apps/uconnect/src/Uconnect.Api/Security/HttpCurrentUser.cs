@@ -62,8 +62,21 @@ public static class Policies
         options.AddPolicy(Customer, p => p.RequireAuthenticatedUser().RequireRole(
             UserRoles.Consumer, UserRoles.BusinessAdmin, UserRoles.BusinessUser, UserRoles.SupportAgent));
         options.AddPolicy(SupportAgent, p => p.RequireAuthenticatedUser().RequireRole(UserRoles.SupportAgent));
-        options.AddPolicy(UsageIngest, p => p.RequireAuthenticatedUser().RequireAssertion(ctx =>
-            ctx.User.FindAll("scope").SelectMany(c => c.Value.Split(' ')).Contains("uconnect.usage.write")));
+        options.AddPolicy(UsageIngest, p => p.RequireAuthenticatedUser().RequireAssertion(ctx => HasUsageWriteScope(ctx.User)));
         options.FallbackPolicy = options.GetPolicy(Customer);
+    }
+
+    /// <summary>True when any space-separated "scope" claim value is uconnect.usage.write.</summary>
+    private static bool HasUsageWriteScope(ClaimsPrincipal user)
+    {
+        foreach (var claim in user.FindAll("scope"))
+        {
+            if (claim.Value.Split(' ').Contains("uconnect.usage.write"))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

@@ -132,8 +132,8 @@ public struct PaymentMethod: Codable, Hashable, Sendable, Identifiable {
 
     public var displayName: String {
         switch kind {
-        case .card: return "\(brand ?? "Card") •••• \(last4)"
-        case .bankAccount: return "Bank account •••• \(last4)"
+        case .card: return "\(brand ?? "Card") \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
+        case .bankAccount: return "Bank account \u{2022}\u{2022}\u{2022}\u{2022} \(last4)"
         case .applePay: return "Apple Pay"
         }
     }

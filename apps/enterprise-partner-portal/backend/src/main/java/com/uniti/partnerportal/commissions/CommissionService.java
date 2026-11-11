@@ -6,9 +6,6 @@ import com.uniti.partnerportal.common.config.PortalProperties;
 import com.uniti.partnerportal.common.domain.ReferenceGenerator;
 import com.uniti.partnerportal.common.error.PortalException;
 import com.uniti.partnerportal.common.security.CurrentUser;
-import com.uniti.partnerportal.orders.OrderEvents;
-import com.uniti.partnerportal.orders.PartnerOrder;
-import com.uniti.partnerportal.orders.PartnerOrderRepository;
 import com.uniti.partnerportal.partner.Partner;
 import com.uniti.partnerportal.partner.PartnerService;
 import org.slf4j.Logger;
@@ -17,9 +14,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.event.TransactionalEventListener;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -34,12 +29,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Commission ledger, monthly statements and payouts.
+ * Commission statements, payouts and rules. Ledger accruals and clawbacks live in
+ * {@link CommissionLedgerService}.
  * <ul>
- *   <li>Accruals are posted when an order goes live (after the order transaction commits, so a
- *       commission fault can never undo an activation). Posting is idempotent per order.</li>
- *   <li>If the customer terminates within the clawback window, every accrual for that order is
- *       reversed in full.</li>
  *   <li>Each month every unbilled entry is swept onto a statement. Partners may dispute an issued
  *       statement within {@value #DISPUTE_WINDOW_DAYS} days; channel managers resolve disputes
  *       with adjustment entries.</li>
@@ -61,98 +53,23 @@ public class CommissionService {
     private final CommissionEntryRepository entries;
     private final CommissionStatementRepository statements;
     private final CommissionPayoutRepository payouts;
-    private final PartnerOrderRepository orders;
     private final PartnerService partners;
-    private final CommissionCalculator calculator;
     private final ReferenceGenerator references;
     private final PortalProperties properties;
     private final Clock clock;
 
     public CommissionService(CommissionRuleRepository rules, CommissionEntryRepository entries,
                              CommissionStatementRepository statements, CommissionPayoutRepository payouts,
-                             PartnerOrderRepository orders, PartnerService partners, CommissionCalculator calculator,
-                             ReferenceGenerator references, PortalProperties properties, Clock clock) {
+                             PartnerService partners, ReferenceGenerator references,
+                             PortalProperties properties, Clock clock) {
         this.rules = rules;
         this.entries = entries;
         this.statements = statements;
         this.payouts = payouts;
-        this.orders = orders;
         this.partners = partners;
-        this.calculator = calculator;
         this.references = references;
         this.properties = properties;
         this.clock = clock;
-    }
-
-    // ---------------------------------------------------------------- ledger
-
-    @TransactionalEventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void onOrderActivated(OrderEvents.OrderActivated event) {
-        accrueForOrder(event.orderId());
-    }
-
-    @TransactionalEventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void onOrderCeased(OrderEvents.OrderCeased event) {
-        clawbackForOrder(event.orderId(), event.activatedAt(), event.ceasedAt(), event.reason());
-    }
-
-    public List<CommissionEntry> accrueForOrder(UUID orderId) {
-        if (entries.existsByOrderIdAndType(orderId, CommissionEntry.Type.ACCRUAL)) {
-            log.info("commission_accrual_skipped orderId={} reason=already_accrued", orderId);
-            return List.of();
-        }
-        PartnerOrder order = orders.findById(orderId).orElseThrow(() -> new PortalException.NotFound("Order", orderId));
-        if (order.getActivatedAt() == null) {
-            throw new PortalException.BusinessRule("commission.order_not_active",
-                    "Order " + order.getReference() + " has not gone live");
-        }
-        Partner partner = partners.load(order.getPartnerId());
-        LocalDate earnedOn = order.getActivatedAt().atZone(ZoneOffset.UTC).toLocalDate();
-        var basis = new CommissionCalculator.OrderBasis(order.getCurrency(), order.getTermMonths(),
-                order.getDealId() != null, order.isNewLogo(),
-                order.getSites().stream()
-                        .map(s -> new CommissionCalculator.SiteBasis(s.getProductCategory(), s.getNetMrcMinor()))
-                        .toList());
-        var result = calculator.calculate(basis, partner.getTier(), rules.findEffectiveOn(earnedOn),
-                properties.commissions());
-        Instant now = Instant.now(clock);
-        List<CommissionEntry> posted = result.lines().stream()
-                .map(line -> new CommissionEntry(UUID.randomUUID(), order.getPartnerId(), order.getId(),
-                        order.getReference(), CommissionEntry.Type.ACCRUAL, line.component(), line.description(),
-                        line.amount().amountMinor(), line.amount().currency(), earnedOn, now, SYSTEM))
-                .toList();
-        entries.saveAll(posted);
-        log.info("commission_accrued orderRef={} partnerId={} total={}", order.getReference(), order.getPartnerId(),
-                result.total());
-        return posted;
-    }
-
-    /**
-     * Reverses every accrual for the order when it ceased inside the clawback window. Termination
-     * outside the window keeps the commission.
-     */
-    public List<CommissionEntry> clawbackForOrder(UUID orderId, Instant activatedAt, Instant ceasedAt, String reason) {
-        long liveDays = ChronoUnit.DAYS.between(activatedAt, ceasedAt);
-        if (liveDays > properties.commissions().clawbackWindowDays()) {
-            log.info("commission_clawback_skipped orderId={} liveDays={}", orderId, liveDays);
-            return List.of();
-        }
-        if (entries.existsByOrderIdAndType(orderId, CommissionEntry.Type.CLAWBACK)) {
-            return List.of();
-        }
-        LocalDate on = ceasedAt.atZone(ZoneOffset.UTC).toLocalDate();
-        Instant now = Instant.now(clock);
-        List<CommissionEntry> reversals = entries.findByOrderIdAndType(orderId, CommissionEntry.Type.ACCRUAL).stream()
-                .map(a -> new CommissionEntry(UUID.randomUUID(), a.getPartnerId(), a.getOrderId(),
-                        a.getOrderReference(), CommissionEntry.Type.CLAWBACK, a.getComponent(),
-                        "Clawback after " + liveDays + " days live: " + reason, -a.getAmountMinor(),
-                        a.getCurrency(), on, now, SYSTEM))
-                .toList();
-        entries.saveAll(reversals);
-        log.info("commission_clawed_back orderId={} entries={}", orderId, reversals.size());
-        return reversals;
     }
 
     // ---------------------------------------------------------------- statements
@@ -243,7 +160,13 @@ public class CommissionService {
         entries.save(adjustment);
         List<CommissionEntry> all = new ArrayList<>(entries.findByStatementIdOrderByEarnedOnAscCreatedAtAsc(
                 statement.getId()));
-        if (all.stream().noneMatch(e -> e.getId().equals(adjustment.getId()))) {
+        boolean found = false;
+        for (CommissionEntry e : all) {
+            if (e.getId().equals(adjustment.getId())) {
+                found = true;
+            }
+        }
+        if (!found) {
             all.add(adjustment);
         }
         statement.recalculate(all, statement.getBroughtForwardMinor());

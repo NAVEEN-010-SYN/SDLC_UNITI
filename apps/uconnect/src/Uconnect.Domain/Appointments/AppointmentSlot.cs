@@ -4,7 +4,7 @@ namespace Uconnect.Domain.Appointments;
 
 /// <summary>
 /// A bookable visit window on a date. Windows are defined in UK local time
-/// (morning 08:00–13:00, afternoon 12:00–18:00, all day 08:00–18:00) and exposed as UTC instants.
+/// (morning 08:00-13:00, afternoon 12:00-18:00, all day 08:00-18:00) and exposed as UTC instants.
 /// </summary>
 public sealed record AppointmentSlot(DateOnly Date, AppointmentWindow Window)
 {

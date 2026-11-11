@@ -32,16 +32,25 @@ final class SslCertificateResource extends ApiResource
             'serialNumber' => $certificate->serial_number,
             'notBefore' => self::iso($certificate->not_before),
             'notAfter' => self::iso($certificate->not_after),
-            'validation' => $pending ? [
-                'expiresAt' => self::iso($certificate->validation_expires_at),
-                'challenges' => array_map(
-                    static fn (string $fqdn, string $token) => ['name' => $fqdn, 'type' => 'TXT', 'value' => $token],
-                    array_keys($certificate->challenges ?? []),
-                    array_values($certificate->challenges ?? []),
-                ),
-            ] : null,
+            'validation' => $pending ? $this->validation($certificate) : null,
             'failureReason' => $certificate->failure_reason,
             'renewedFromId' => $certificate->renewed_from_id,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function validation(SslCertificate $certificate): array
+    {
+        $challenges = [];
+        foreach ($certificate->challenges ?? [] as $fqdn => $token) {
+            $challenges[] = ['name' => (string) $fqdn, 'type' => 'TXT', 'value' => (string) $token];
+        }
+
+        return [
+            'expiresAt' => self::iso($certificate->validation_expires_at),
+            'challenges' => $challenges,
         ];
     }
 }

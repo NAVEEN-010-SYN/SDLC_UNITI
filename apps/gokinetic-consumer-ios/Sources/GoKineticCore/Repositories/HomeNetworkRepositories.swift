@@ -112,7 +112,7 @@ public final class LiveRouterRepository: RouterRepository {
     public func renameDevice(routerId: String, deviceId: String, name: String) async throws -> ConnectedDevice {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard (1...40).contains(trimmed.count) else {
-            throw APIError.validation(ProblemDetails(title: "Invalid name", errors: ["name": ["Use 1–40 characters."]]))
+            throw APIError.validation(ProblemDetails(title: "Invalid name", errors: ["name": ["Use 1\u{2013}40 characters."]]))
         }
         return try await client.send(RouterEndpoints.patchDevice(routerId: routerId, deviceId: deviceId, .init(blocked: nil, name: trimmed)))
     }

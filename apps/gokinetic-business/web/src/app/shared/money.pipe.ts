@@ -22,7 +22,7 @@ export function minorDigits(currency: string): number {
  * once, at display time, on an exact integer.
  */
 export function formatMinor(amountMinor: number | null | undefined, currency = 'GBP', options: { signed?: boolean; locale?: string } = {}): string {
-  if (amountMinor === null || amountMinor === undefined || !Number.isFinite(amountMinor)) return '—';
+  if (amountMinor === null || amountMinor === undefined || !Number.isFinite(amountMinor)) return '\u2014';
   const digits = minorDigits(currency);
   return formatterFor(currency, options.locale ?? 'en-GB', options.signed ?? false).format(amountMinor / 10 ** digits);
 }
@@ -35,11 +35,11 @@ export class MoneyPipe implements PipeTransform {
   }
 }
 
-/** Thousandths of a percent (99_950) → "99.950%"; basis points use `'bps'` (2_500 → "25.00%"). */
+/** Thousandths of a percent (99_950) -> "99.950%"; basis points use `'bps'` (2_500 -> "25.00%"). */
 @Pipe({ name: 'pct', standalone: true })
 export class PercentPipe implements PipeTransform {
   transform(value: number | null | undefined, unit: 'milli' | 'bps' = 'milli'): string {
-    if (value === null || value === undefined) return '—';
+    if (value === null || value === undefined) return '\u2014';
     return unit === 'milli' ? `${(value / 1000).toFixed(3)}%` : `${(value / 100).toFixed(2)}%`;
   }
 }

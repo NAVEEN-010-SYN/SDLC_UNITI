@@ -36,7 +36,12 @@ export class AddressBuilder {
   }
 
   static outOfFootprint(): AddressBuilder {
-    return new AddressBuilder().withLine1('9 Nowhere Rd').withCity('Barrow').withState('AK').withPostalCode('99723');
+    const builder = new AddressBuilder();
+    builder.withLine1('9 Nowhere Rd');
+    builder.withCity('Barrow');
+    builder.withState('AK');
+    builder.withPostalCode('99723');
+    return builder;
   }
 
   withLine1(line1: string): this {
@@ -94,7 +99,11 @@ export class OrderBuilder {
   }
 
   withPlan(sku: string): this {
-    this.draft.lines = [{ sku, quantity: 1 }, ...this.draft.lines.filter((l) => !l.sku.startsWith('FIB-'))];
+    const lines: OrderLine[] = [{ sku, quantity: 1 }];
+    for (const line of this.draft.lines) {
+      if (!line.sku.startsWith('FIB-')) lines.push(line);
+    }
+    this.draft.lines = lines;
     return this;
   }
 
@@ -143,10 +152,11 @@ export class TicketBuilder {
   }
 
   static billingDispute(): TicketBuilder {
-    return new TicketBuilder()
-      .withCategory('BILLING')
-      .withSubject('Duplicate charge on latest invoice')
-      .withDescription('The installation fee appears twice on the most recent invoice.');
+    const builder = new TicketBuilder();
+    builder.withCategory('BILLING');
+    builder.withSubject('Duplicate charge on latest invoice');
+    builder.withDescription('The installation fee appears twice on the most recent invoice.');
+    return builder;
   }
 
   withSubject(subject: string): this {

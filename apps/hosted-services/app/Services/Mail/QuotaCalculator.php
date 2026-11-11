@@ -115,24 +115,30 @@ final class QuotaCalculator
             );
         }
 
-        $delta = $requestedQuotaMb - $currentQuotaMb;
-        if ($delta > $summary->unallocatedMb()) {
-            $shortfall = $delta - $summary->unallocatedMb();
-            $blocks = $this->blocksFor($shortfall);
+        $this->assertPoolHasRoom($summary, $requestedQuotaMb - $currentQuotaMb);
+    }
 
-            throw new BusinessRuleException(
-                sprintf('The storage pool has %d MB unallocated but %d MB is needed.', $summary->unallocatedMb(), $delta),
-                'MAIL_POOL_EXHAUSTED',
-                [
-                    'shortfallMb' => $shortfall,
-                    'suggestedAddonBlocks' => $blocks,
-                    'suggestedAddonMonthlyCost' => [
-                        'amountMinor' => $blocks * $this->addonBlockPriceMinor,
-                        'currency' => $this->currency,
-                    ],
-                ],
-            );
+    private function assertPoolHasRoom(QuotaSummary $summary, int $delta): void
+    {
+        if ($delta <= $summary->unallocatedMb()) {
+            return;
         }
+
+        $shortfall = $delta - $summary->unallocatedMb();
+        $blocks = $this->blocksFor($shortfall);
+
+        throw new BusinessRuleException(
+            sprintf('The storage pool has %d MB unallocated but %d MB is needed.', $summary->unallocatedMb(), $delta),
+            'MAIL_POOL_EXHAUSTED',
+            [
+                'shortfallMb' => $shortfall,
+                'suggestedAddonBlocks' => $blocks,
+                'suggestedAddonMonthlyCost' => [
+                    'amountMinor' => $blocks * $this->addonBlockPriceMinor,
+                    'currency' => $this->currency,
+                ],
+            ],
+        );
     }
 
     /**
@@ -169,11 +175,13 @@ final class QuotaCalculator
     public function mailboxUsage(int $usedMb, int $quotaMb): array
     {
         $percent = $quotaMb <= 0 ? 100.0 : round(min($usedMb, $quotaMb) * 100 / $quotaMb, 1);
-        $level = match (true) {
-            $usedMb >= $quotaMb => self::LEVEL_FULL,
-            $percent >= $this->warningPercent => self::LEVEL_WARNING,
-            default => self::LEVEL_OK,
-        };
+        if ($usedMb >= $quotaMb) {
+            $level = self::LEVEL_FULL;
+        } elseif ($percent >= $this->warningPercent) {
+            $level = self::LEVEL_WARNING;
+        } else {
+            $level = self::LEVEL_OK;
+        }
 
         return ['usedMb' => $usedMb, 'quotaMb' => $quotaMb, 'percent' => $percent, 'level' => $level];
     }

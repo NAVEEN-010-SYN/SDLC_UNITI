@@ -49,33 +49,8 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
 
     internal static ProblemDetails Map(Exception exception)
     {
-        var problem = exception switch
-        {
-            RequestValidationException e => new ValidationProblemDetails(e.Errors.ToDictionary(k => k.Key, v => v.Value))
-            {
-                Status = StatusCodes.Status400BadRequest,
-                Title = e.Message,
-            },
-            NotFoundException e => Problem(StatusCodes.Status404NotFound, "Not found", e.Message),
-            ForbiddenException e => Problem(StatusCodes.Status403Forbidden, "Forbidden", e.Message),
-            ConflictException e => Problem(StatusCodes.Status409Conflict, "Conflict", e.Message),
-            PaymentDeclinedException e => Problem(StatusCodes.Status402PaymentRequired, "Payment declined", e.Message),
-            ExternalServiceException e => Problem(
-                e.IsTransient ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status502BadGateway,
-                "Dependency unavailable",
-                "A system we depend on is not responding. Please try again shortly."),
-            InvalidStateTransitionException e => Problem(StatusCodes.Status409Conflict, "Invalid state", e.Message),
-            DomainException e => Problem(StatusCodes.Status422UnprocessableEntity, "Business rule violated", e.Message),
-            BadHttpRequestException e => Problem(e.StatusCode, "Bad request", "The request could not be read."),
-            _ => Problem(StatusCodes.Status500InternalServerError, "Unexpected error", "Something went wrong. Quote the correlation id if you contact support."),
-        };
-
-        problem.Extensions["code"] = exception switch
-        {
-            ApplicationExceptionBase e => e.Code,
-            DomainException e => e.Code,
-            _ => problem.Status >= 500 ? "internal_error" : "bad_request",
-        };
+        var problem = MapStatus(exception);
+        problem.Extensions["code"] = MapCode(exception, problem);
 
         if (exception is PaymentDeclinedException declined)
         {
@@ -84,6 +59,73 @@ public sealed class ProblemDetailsExceptionHandler : IExceptionHandler
         }
 
         return problem;
+    }
+
+    private static ProblemDetails MapStatus(Exception exception)
+    {
+        if (exception is RequestValidationException validation)
+        {
+            var errors = validation.Errors.ToDictionary(k => k.Key, v => v.Value);
+            return new ValidationProblemDetails(errors) { Status = StatusCodes.Status400BadRequest, Title = validation.Message };
+        }
+
+        if (exception is NotFoundException)
+        {
+            return Problem(StatusCodes.Status404NotFound, "Not found", exception.Message);
+        }
+
+        if (exception is ForbiddenException)
+        {
+            return Problem(StatusCodes.Status403Forbidden, "Forbidden", exception.Message);
+        }
+
+        if (exception is ConflictException)
+        {
+            return Problem(StatusCodes.Status409Conflict, "Conflict", exception.Message);
+        }
+
+        if (exception is PaymentDeclinedException)
+        {
+            return Problem(StatusCodes.Status402PaymentRequired, "Payment declined", exception.Message);
+        }
+
+        if (exception is ExternalServiceException external)
+        {
+            var status = external.IsTransient ? StatusCodes.Status503ServiceUnavailable : StatusCodes.Status502BadGateway;
+            return Problem(status, "Dependency unavailable", "A system we depend on is not responding. Please try again shortly.");
+        }
+
+        if (exception is InvalidStateTransitionException)
+        {
+            return Problem(StatusCodes.Status409Conflict, "Invalid state", exception.Message);
+        }
+
+        if (exception is DomainException)
+        {
+            return Problem(StatusCodes.Status422UnprocessableEntity, "Business rule violated", exception.Message);
+        }
+
+        if (exception is BadHttpRequestException badRequest)
+        {
+            return Problem(badRequest.StatusCode, "Bad request", "The request could not be read.");
+        }
+
+        return Problem(StatusCodes.Status500InternalServerError, "Unexpected error", "Something went wrong. Quote the correlation id if you contact support.");
+    }
+
+    private static string MapCode(Exception exception, ProblemDetails problem)
+    {
+        if (exception is ApplicationExceptionBase applicationError)
+        {
+            return applicationError.Code;
+        }
+
+        if (exception is DomainException domainError)
+        {
+            return domainError.Code;
+        }
+
+        return problem.Status >= 500 ? "internal_error" : "bad_request";
     }
 
     private static ProblemDetails Problem(int status, string title, string detail) => new() { Status = status, Title = title, Detail = detail };

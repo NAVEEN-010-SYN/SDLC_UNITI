@@ -19,11 +19,11 @@ under `qa/`, `data/`, `observability/` and `design/`.
 | `apps/iconnect-wholesale` | iConnect Wholesale ordering | .NET 8 Web API + Angular UI | Wholesale partners |
 | `apps/chatbot` | Customer support chatbot | Node.js (Express, TypeScript) | All |
 | `apps/portal-support` | Marketing/support content: WordPress plugin + Contentful CMS | PHP (WordPress), Node.js | All |
-| `apps/uce` | UCE – Unified Customer Experience shell (referrals via SaaSquatch, MS Clarity, FullStory) | React (TypeScript) | All |
-| `qa/` | Playwright, Selenium (Java), Postman collections, Swagger/OpenAPI specs | — | — |
-| `data/` | Snowflake warehouse models & analytics | SQL / Snowflake | — |
-| `observability/` | Dynatrace, Kibana dashboards, alerting | JSON / YAML | — |
-| `design/` | Figma design tokens & export scripts | JSON / Node.js | — |
+| `apps/uce` | UCE - Unified Customer Experience shell (referrals via SaaSquatch, MS Clarity, FullStory) | React (TypeScript) | All |
+| `qa/` | Playwright, Selenium (Java), Postman collections, Swagger/OpenAPI specs | - | - |
+| `data/` | Snowflake warehouse models & analytics | SQL / Snowflake | - |
+| `observability/` | Dynatrace, Kibana dashboards, alerting | JSON / YAML | - |
+| `design/` | Figma design tokens & export scripts | JSON / Node.js | - |
 
 ## Scope of this edition
 

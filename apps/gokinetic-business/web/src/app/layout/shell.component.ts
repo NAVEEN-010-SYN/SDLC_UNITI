@@ -31,7 +31,7 @@ const NAV: NavItem[] = [
     <header class="topbar">
       <span class="brand">Go Kinetic <strong>Business</strong></span>
       @if (auth.session(); as me) {
-        <span class="account">{{ me.account.name }} · {{ me.account.id }}</span>
+        <span class="account">{{ me.account.name }} \u00B7 {{ me.account.id }}</span>
         @if (me.account.status !== 'ACTIVE') {
           <span class="badge badge--warning">Account {{ me.account.status.toLowerCase() }}</span>
         }

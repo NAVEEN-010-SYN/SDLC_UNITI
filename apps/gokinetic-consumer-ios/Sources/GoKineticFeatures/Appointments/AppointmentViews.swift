@@ -17,19 +17,7 @@ public struct AppointmentsView: View {
         List {
             AsyncContentView(state: viewModel.state, emptyTitle: L10n.string("appointments.empty"), emptySymbol: "calendar",
                              retry: { Task { await viewModel.load() } }) { content in
-                Section(L10n.string("appointments.upcoming")) {
-                    if content.upcoming.isEmpty {
-                        Text(L10n.string("appointments.noneUpcoming")).foregroundStyle(.secondary)
-                    }
-                    ForEach(content.upcoming) { appointment in upcomingRow(appointment) }
-                }
-                if !content.past.isEmpty {
-                    Section(L10n.string("appointments.past")) {
-                        ForEach(content.past) { appointment in
-                            AppointmentSummaryRow(appointment: appointment, window: dateFormatter.slotWindow(appointment.slot))
-                        }
-                    }
-                }
+                appointmentSections(content)
             }
             if let error = viewModel.actionError {
                 Banner(title: L10n.string(error.titleKey), message: error.detail, tone: .danger,
@@ -68,6 +56,23 @@ public struct AppointmentsView: View {
                 Task { await viewModel.cancel(appointment, reason: reason) }
             }
             Button(L10n.string("appointments.keep"), role: .cancel) {}
+        }
+    }
+
+    @ViewBuilder
+    private func appointmentSections(_ content: AppointmentsViewModel.Content) -> some View {
+        Section(L10n.string("appointments.upcoming")) {
+            if content.upcoming.isEmpty {
+                Text(L10n.string("appointments.noneUpcoming")).foregroundStyle(.secondary)
+            }
+            ForEach(content.upcoming) { appointment in upcomingRow(appointment) }
+        }
+        if !content.past.isEmpty {
+            Section(L10n.string("appointments.past")) {
+                ForEach(content.past) { appointment in
+                    AppointmentSummaryRow(appointment: appointment, window: dateFormatter.slotWindow(appointment.slot))
+                }
+            }
         }
     }
 
@@ -175,16 +180,7 @@ public struct AppointmentBookingView: View {
                         }
                     }
                     ForEach(viewModel.slotsForSelectedDay) { slot in
-                        Button { viewModel.selectedSlotId = slot.id } label: {
-                            HStack {
-                                Text("\(dateFormatter.time(slot.start)) – \(dateFormatter.time(slot.end))")
-                                Spacer()
-                                if viewModel.selectedSlotId == slot.id {
-                                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.brand)
-                                }
-                            }
-                        }
-                        .foregroundStyle(.primary)
+                        slotRow(slot)
                     }
                 }
             }
@@ -205,6 +201,19 @@ public struct AppointmentBookingView: View {
             }
             .listRowInsets(EdgeInsets())
         }
+    }
+
+    private func slotRow(_ slot: TimeSlot) -> some View {
+        Button { viewModel.selectedSlotId = slot.id } label: {
+            HStack {
+                Text("\(dateFormatter.time(slot.start)) \u{2013} \(dateFormatter.time(slot.end))")
+                Spacer()
+                if viewModel.selectedSlotId == slot.id {
+                    Image(systemName: "checkmark").foregroundStyle(Theme.Palette.brand)
+                }
+            }
+        }
+        .foregroundStyle(.primary)
     }
 
     private func dayChip(_ day: SlotDay) -> some View {

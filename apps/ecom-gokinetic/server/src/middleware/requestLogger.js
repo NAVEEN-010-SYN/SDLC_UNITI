@@ -2,6 +2,12 @@
 
 const { logger } = require('../config/logger');
 
+function levelFor(statusCode) {
+  if (statusCode >= 500) return 'error';
+  if (statusCode >= 400) return 'warn';
+  return 'info';
+}
+
 /**
  * Logs one structured line per request on completion with latency, status and
  * the authenticated principal (never the token itself).
@@ -12,7 +18,7 @@ function requestLogger({ log = logger, ignorePaths = ['/api/v1/health'] } = {}) 
     const started = process.hrtime.bigint();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
-      const level = res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info';
+      const level = levelFor(res.statusCode);
       log[level]('http.request', {
         method: req.method,
         path: req.originalUrl.split('?')[0],

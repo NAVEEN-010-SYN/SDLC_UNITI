@@ -160,6 +160,8 @@ export class WebSocketGateway implements HandoffPublisher {
   async close(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat);
     for (const peer of this.peers) peer.socket.close(1001, 'server shutting down');
-    await new Promise<void>((resolve) => (this.wss ? this.wss.close(() => resolve()) : resolve()));
+    const wss = this.wss;
+    if (!wss) return;
+    await new Promise<void>((resolve) => wss.close(() => resolve()));
   }
 }

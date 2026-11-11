@@ -54,8 +54,8 @@ export function userActions(user: BusinessUser, currentUserId: string): UserActi
         @if (err('lastName'); as e) { <p class="field-error">{{ e }}</p> }
         <fieldset>
           <legend>Role</legend>
-          <label class="radio"><input type="radio" formControlName="role" value="BUSINESS_USER" /> User – view services, place orders, raise tickets</label>
-          <label class="radio"><input type="radio" formControlName="role" value="BUSINESS_ADMIN" /> Admin – also manage users, billing and approvals</label>
+          <label class="radio"><input type="radio" formControlName="role" value="BUSINESS_USER" /> User \u2013 view services, place orders, raise tickets</label>
+          <label class="radio"><input type="radio" formControlName="role" value="BUSINESS_ADMIN" /> Admin \u2013 also manage users, billing and approvals</label>
         </fieldset>
         @if (invite.controls.role.value === 'BUSINESS_USER') {
           <fieldset>
@@ -63,7 +63,7 @@ export function userActions(user: BusinessUser, currentUserId: string): UserActi
             <label class="checkbox"><input type="checkbox" formControlName="allSites" /> All sites</label>
             @if (!invite.controls.allSites.value) {
               @for (s of sites(); track s.id) {
-                <label class="checkbox"><input type="checkbox" [checked]="scope().has(s.id)" (change)="toggleSite(s.id)" /> {{ s.code }} – {{ s.name }}</label>
+                <label class="checkbox"><input type="checkbox" [checked]="scope().has(s.id)" (change)="toggleSite(s.id)" /> {{ s.code }} \u2013 {{ s.name }}</label>
               }
               @if (scopeError()) { <p class="field-error">Choose at least one site.</p> }
             }
@@ -152,7 +152,11 @@ export class UsersComponent {
   toggleSite(id: string): void {
     this.scope.update((s) => {
       const next = new Set(s);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
       return next;
     });
   }
@@ -163,20 +167,20 @@ export class UsersComponent {
     const restricted = v.role === 'BUSINESS_USER' && !v.allSites;
     this.scopeError.set(restricted && this.scope().size === 0);
     if (this.invite.invalid || this.scopeError()) return;
-    this.run(
-      this.api.invite({
-        email: v.email.trim().toLowerCase(),
-        firstName: v.firstName.trim(),
-        lastName: v.lastName.trim(),
-        role: v.role,
-        siteScope: restricted ? [...this.scope()] : null
-      }),
-      () => {
-        this.invite.reset();
-        this.scope.set(new Set());
-        this.inviting.set(false);
-      }
-    );
+    const request = {
+      email: v.email.trim().toLowerCase(),
+      firstName: v.firstName.trim(),
+      lastName: v.lastName.trim(),
+      role: v.role,
+      siteScope: restricted ? [...this.scope()] : null
+    };
+    this.run(this.api.invite(request), () => this.resetInviteForm());
+  }
+
+  private resetInviteForm(): void {
+    this.invite.reset();
+    this.scope.set(new Set());
+    this.inviting.set(false);
   }
 
   toggleRole(user: BusinessUser): void {

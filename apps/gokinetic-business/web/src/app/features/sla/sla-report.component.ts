@@ -40,7 +40,7 @@ type ReportState = { report: SlaReport | null; problem: ApiProblem | null; loadi
       </label>
     </header>
     <gkb-problem-alert [problem]="state().problem" />
-    @if (state().loading) { <p>Loading report…</p> }
+    @if (state().loading) { <p>Loading report\u2026</p> }
     @if (state().report; as r) {
       @if (r.provisional) { <p class="alert alert--info">This month is still in progress; figures are provisional until month end.</p> }
       <div class="tiles">
@@ -59,7 +59,7 @@ type ReportState = { report: SlaReport | null; problem: ApiProblem | null; loadi
               <td>{{ s.productName }}</td><td>{{ s.slaTier }}</td>
               <td class="num">{{ s.availabilityMilliPct | pct }}</td><td class="num">{{ s.targetMilliPct | pct }}</td>
               <td class="num">{{ duration(s.downtimeMinutes) }} ({{ s.outageCount }})</td><td class="num">{{ duration(s.plannedMinutes) }}</td>
-              <td class="num">{{ s.creditBps ? (s.credit.amountMinor | money: s.credit.currency) : '—' }}</td>
+              <td class="num">{{ s.creditBps ? (s.credit.amountMinor | money: s.credit.currency) : '\u2014' }}</td>
             </tr>
           } @empty { <tr><td colspan="7" class="empty">No services were active in this period.</td></tr> }
         </tbody>

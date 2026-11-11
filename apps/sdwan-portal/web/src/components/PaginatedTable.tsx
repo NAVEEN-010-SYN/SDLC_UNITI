@@ -66,7 +66,7 @@ export function PaginatedTable<T>({ columns, data, rowKey, loading, emptyMessage
           {!data && loading && (
             <tr>
               <td colSpan={columns.length} className="empty">
-                Loading…
+                Loading&hellip;
               </td>
             </tr>
           )}
@@ -75,7 +75,7 @@ export function PaginatedTable<T>({ columns, data, rowKey, loading, emptyMessage
       {data && data.total > 0 && (
         <nav className="pager" aria-label="Pagination">
           <span>
-            {first}–{last} of {data.total}
+            {first}&ndash;{last} of {data.total}
           </span>
           <button type="button" onClick={() => onPageChange(page - 1)} disabled={page <= 1}>
             Previous

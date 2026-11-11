@@ -1,6 +1,6 @@
 import { LineDiagnostic } from '../../clients/platformClients';
 import { quickReplyPayload } from '../../nlu/intentClassifier';
-import { END, FlowDefinition } from '../stateMachine';
+import { ActionResult, END, FlowDefinition } from '../stateMachine';
 import {
   agentQuickReply,
   autofillSingleService,
@@ -41,6 +41,25 @@ const MANUAL_STEPS = [
   'If the lights are still red, try a different power socket.',
 ].map((step, i) => `${i + 1}. ${step}`).join('\n');
 
+/** Maps a diagnosis onto the reply and next state. */
+function diagnosisReply(diagnosis: DiagnosisKind): ActionResult {
+  if (diagnosis === 'ONT_OFFLINE') {
+    const text =
+      "Your fibre box (the ONT on the wall) isn't responding, so a router reset won't help yet. Please check its power light is on. " +
+      'If it has a red LOS light, there may be a fault on the line or an outage nearby.';
+    const quickReplies = [{ label: 'Check for outages', payload: quickReplyPayload('CHECK_OUTAGE') }, ticketQuickReply()];
+    return { replies: [{ text, quickReplies }], next: END, outcome: 'ont_offline' };
+  }
+  if (diagnosis === 'WEAK_SIGNAL') {
+    const text = "The fibre signal to your property is outside normal levels, which needs an engineer. I'd recommend raising a fault.";
+    return { replies: [{ text, quickReplies: [ticketQuickReply(), agentQuickReply()] }], next: END, outcome: 'fibre_fault_suspected' };
+  }
+  if (diagnosis === 'ROUTER_OFFLINE') {
+    return { replies: [{ text: `Your router appears to be offline. Try these steps:\n${MANUAL_STEPS}` }], next: 'manualWorked' };
+  }
+  return { replies: [{ text: 'Your line and router both look healthy from our side.' }], next: 'rebootConfirm' };
+}
+
 export const resetRouterFlow: FlowDefinition = {
   id: 'reset_router',
   intent: 'RESET_ROUTER',
@@ -66,39 +85,7 @@ export const resetRouterFlow: FlowDefinition = {
         }
         const diagnosis = diagnose(result);
         ctx.slots.diagnosis = diagnosis;
-        switch (diagnosis) {
-          case 'ONT_OFFLINE':
-            return {
-              replies: [
-                {
-                  text:
-                    "Your fibre box (the ONT on the wall) isn't responding, so a router reset won't help yet. Please check its power light is on. " +
-                    'If it has a red LOS light, there may be a fault on the line or an outage nearby.',
-                  quickReplies: [
-                    { label: 'Check for outages', payload: quickReplyPayload('CHECK_OUTAGE') },
-                    ticketQuickReply(),
-                  ],
-                },
-              ],
-              next: END,
-              outcome: 'ont_offline',
-            };
-          case 'WEAK_SIGNAL':
-            return {
-              replies: [
-                {
-                  text: "The fibre signal to your property is outside normal levels, which needs an engineer. I'd recommend raising a fault.",
-                  quickReplies: [ticketQuickReply(), agentQuickReply()],
-                },
-              ],
-              next: END,
-              outcome: 'fibre_fault_suspected',
-            };
-          case 'ROUTER_OFFLINE':
-            return { replies: [{ text: `Your router appears to be offline. Try these steps:\n${MANUAL_STEPS}` }], next: 'manualWorked' };
-          default:
-            return { replies: [{ text: 'Your line and router both look healthy from our side.' }], next: 'rebootConfirm' };
-        }
+        return diagnosisReply(diagnosis);
       },
     },
     rebootConfirm: {

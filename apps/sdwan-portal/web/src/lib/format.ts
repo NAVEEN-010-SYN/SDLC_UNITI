@@ -11,7 +11,8 @@ export function formatBps(bps: number): string {
   if (!Number.isFinite(bps) || bps <= 0) return '0 bps';
   const exp = Math.min(UNITS.length - 1, Math.floor(Math.log10(bps) / 3));
   const value = bps / 10 ** (exp * 3);
-  return `${value >= 100 || exp === 0 ? Math.round(value) : value.toFixed(1).replace(/\.0$/, '')} ${UNITS[exp]}`;
+  if (value >= 100 || exp === 0) return `${Math.round(value)} ${UNITS[exp]}`;
+  return `${value.toFixed(1).replace(/\.0$/, '')} ${UNITS[exp]}`;
 }
 
 export const formatKbps = (kbps: number): string => formatBps(kbps * 1000);
@@ -20,28 +21,29 @@ const dateTime = new Intl.DateTimeFormat('en-GB', { dateStyle: 'medium', timeSty
 
 /** Wire values are UTC; shown in UTC with an explicit suffix so NOC and customer see the same time. */
 export function formatDateTime(iso: string | undefined): string {
-  if (!iso) return '—';
+  if (!iso) return '\u2014';
   const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? '—' : `${dateTime.format(ms)} UTC`;
+  return Number.isNaN(ms) ? '\u2014' : `${dateTime.format(ms)} UTC`;
 }
 
 export function formatRelative(iso: string | undefined, nowMs = Date.now()): string {
-  if (!iso) return '—';
+  if (!iso) return '\u2014';
   const diffSec = Math.round((nowMs - Date.parse(iso)) / 1000);
-  if (Number.isNaN(diffSec)) return '—';
+  if (Number.isNaN(diffSec)) return '\u2014';
   const abs = Math.abs(diffSec);
   const suffix = diffSec >= 0 ? 'ago' : 'from now';
   if (abs < 60) return diffSec >= 0 ? 'just now' : 'in under a minute';
-  const [n, unit] = abs < 3600 ? [Math.floor(abs / 60), 'min'] : abs < 86400 ? [Math.floor(abs / 3600), 'h'] : [Math.floor(abs / 86400), 'd'];
-  return `${n} ${unit} ${suffix}`;
+  if (abs < 3600) return `${Math.floor(abs / 60)} min ${suffix}`;
+  if (abs < 86400) return `${Math.floor(abs / 3600)} h ${suffix}`;
+  return `${Math.floor(abs / 86400)} d ${suffix}`;
 }
 
 export function formatMs(v: number | undefined): string {
-  return v === undefined ? '—' : `${v < 10 ? v.toFixed(1) : Math.round(v)} ms`;
+  return v === undefined ? '\u2014' : `${v < 10 ? v.toFixed(1) : Math.round(v)} ms`;
 }
 
 export function formatPct(v: number | null | undefined, dp = 1): string {
-  return v === null || v === undefined ? '—' : `${v.toFixed(dp)}%`;
+  return v === null || v === undefined ? '\u2014' : `${v.toFixed(dp)}%`;
 }
 
 export function humanize(code: string): string {

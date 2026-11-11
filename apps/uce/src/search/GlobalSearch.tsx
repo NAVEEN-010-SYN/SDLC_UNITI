@@ -37,22 +37,20 @@ export function GlobalSearch({ service, debounceMs = 250, onSearch }: GlobalSear
       return undefined;
     }
     const controller = new AbortController();
-    const timer = setTimeout(() => {
+    const runSearch = async () => {
       setBusy(true);
-      service
-        .search(query, controller.signal)
-        .then((items) => {
-          // Stored in display (grouped) order so keyboard positions match what is shown.
-          setResults(groupResults(items).flatMap((g) => g.items));
-          onSearch?.(items.length);
-        })
-        .catch(() => {
-          if (!controller.signal.aborted) setResults([]);
-        })
-        .finally(() => {
-          if (!controller.signal.aborted) setBusy(false);
-        });
-    }, debounceMs);
+      try {
+        const items = await service.search(query, controller.signal);
+        // Stored in display (grouped) order so keyboard positions match what is shown.
+        setResults(groupResults(items).flatMap((g) => g.items));
+        onSearch?.(items.length);
+      } catch {
+        if (!controller.signal.aborted) setResults([]);
+      } finally {
+        if (!controller.signal.aborted) setBusy(false);
+      }
+    };
+    const timer = setTimeout(() => void runSearch(), debounceMs);
     return () => {
       clearTimeout(timer);
       controller.abort();
@@ -108,31 +106,50 @@ export function GlobalSearch({ service, debounceMs = 250, onSearch }: GlobalSear
               {direct.label}
             </li>
           ) : (
-            groupResults(results).map((group) => (
-              <li key={group.type} role="presentation">
-                <span className="uce-search__group">{GROUP_LABELS[group.type]}</span>
-                <ul role="group" aria-label={GROUP_LABELS[group.type]}>
-                  {group.items.map((item) => {
-                    const position = results.indexOf(item);
-                    return (
-                      <li
-                        key={`${item.type}-${item.id}`}
-                        id={`uce-search-option-${position}`}
-                        role="option"
-                        aria-selected={active === position}
-                        onClick={() => go(item.path)}
-                      >
-                        {item.title}
-                        {item.subtitle && <small> {item.subtitle}</small>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            ))
+            <ResultGroups results={results} active={active} onSelect={go} />
           )}
         </ul>
       )}
     </div>
+  );
+}
+
+interface ResultGroupsProps {
+  results: SearchResult[];
+  active: number;
+  onSelect: (path: string) => void;
+}
+
+/** Grouped result options; ids use the flat position so aria-activedescendant matches. */
+function ResultGroups({ results, active, onSelect }: ResultGroupsProps) {
+  return (
+    <>
+      {groupResults(results).map((group) => (
+        <li key={group.type} role="presentation">
+          <span className="uce-search__group">{GROUP_LABELS[group.type]}</span>
+          <ul role="group" aria-label={GROUP_LABELS[group.type]}>
+            {group.items.map((item) => (
+              <ResultOption key={`${item.type}-${item.id}`} item={item} position={results.indexOf(item)} active={active} onSelect={onSelect} />
+            ))}
+          </ul>
+        </li>
+      ))}
+    </>
+  );
+}
+
+interface ResultOptionProps {
+  item: SearchResult;
+  position: number;
+  active: number;
+  onSelect: (path: string) => void;
+}
+
+function ResultOption({ item, position, active, onSelect }: ResultOptionProps) {
+  return (
+    <li id={`uce-search-option-${position}`} role="option" aria-selected={active === position} onClick={() => onSelect(item.path)}>
+      {item.title}
+      {item.subtitle && <small> {item.subtitle}</small>}
+    </li>
   );
 }

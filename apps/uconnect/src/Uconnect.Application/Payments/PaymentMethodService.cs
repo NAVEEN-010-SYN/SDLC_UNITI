@@ -65,14 +65,20 @@ public sealed class PaymentMethodService
 
         var instrument = await _gateway.DescribeTokenAsync(request.PaymentToken, ct);
         var today = _clock.Today;
-        var method = instrument.Type switch
+        PaymentMethod method;
+        if (instrument.Type == PaymentMethodType.Card && instrument.ExpiryMonth.HasValue && instrument.ExpiryYear.HasValue)
         {
-            PaymentMethodType.Card when instrument is { ExpiryMonth: { } month, ExpiryYear: { } year } =>
-                PaymentMethod.CreateCard(Guid.NewGuid(), account.Id, request.PaymentToken, instrument.Label, instrument.Last4, month, year, today, _clock.UtcNow),
-            PaymentMethodType.DirectDebit =>
-                PaymentMethod.CreateDirectDebit(Guid.NewGuid(), account.Id, request.PaymentToken, instrument.Label, instrument.Last4, _clock.UtcNow),
-            _ => throw new RequestValidationException("paymentToken", "The payment token does not describe a supported card or mandate."),
-        };
+            method = PaymentMethod.CreateCard(Guid.NewGuid(), account.Id, request.PaymentToken, instrument.Label, instrument.Last4,
+                instrument.ExpiryMonth.Value, instrument.ExpiryYear.Value, today, _clock.UtcNow);
+        }
+        else if (instrument.Type == PaymentMethodType.DirectDebit)
+        {
+            method = PaymentMethod.CreateDirectDebit(Guid.NewGuid(), account.Id, request.PaymentToken, instrument.Label, instrument.Last4, _clock.UtcNow);
+        }
+        else
+        {
+            throw new RequestValidationException("paymentToken", "The payment token does not describe a supported card or mandate.");
+        }
 
         _methods.Add(method);
         var all = existing.Append(method).ToList();

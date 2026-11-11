@@ -71,23 +71,30 @@ public struct UsageChart: View {
             UsageChartPoint.Series.upload.rawValue: Theme.Palette.accent
         ])
         .chartYAxisLabel("GB")
-        .chartOverlay { proxy in
-            GeometryReader { geometry in
-                Rectangle().fill(.clear).contentShape(Rectangle())
-                    .gesture(
-                        DragGesture(minimumDistance: 0)
-                            .onChanged { value in
-                                let origin = geometry[proxy.plotAreaFrame].origin
-                                let x = value.location.x - origin.x
-                                selectedDate = proxy.value(atX: x, as: Date.self)
-                            }
-                            .onEnded { _ in }
-                    )
-            }
-        }
+        .chartOverlay { proxy in selectionOverlay(proxy) }
         .frame(height: 220)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilitySummary)
+    }
+
+    /// Transparent layer that maps drags to the selected date.
+    private func selectionOverlay(_ proxy: ChartProxy) -> some View {
+        GeometryReader { geometry in
+            Rectangle().fill(.clear).contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            selectDate(at: value.location, proxy: proxy, geometry: geometry)
+                        }
+                        .onEnded { _ in }
+                )
+        }
+    }
+
+    private func selectDate(at location: CGPoint, proxy: ChartProxy, geometry: GeometryProxy) {
+        let origin = geometry[proxy.plotAreaFrame].origin
+        let x = location.x - origin.x
+        selectedDate = proxy.value(atX: x, as: Date.self)
     }
 
     private func isHighlighted(_ point: UsageChartPoint) -> Bool {

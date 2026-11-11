@@ -2,7 +2,7 @@ import { PlanOffer, ServiceSummary } from '../../clients/platformClients';
 import { formatMoney, priceDelta } from '../../domain/money';
 import { BotReply } from '../../domain/types';
 import { choiceSlot, speedSlot } from '../slots';
-import { END, FlowContext, FlowDefinition } from '../stateMachine';
+import { ActionResult, END, FlowContext, FlowDefinition } from '../stateMachine';
 import {
   activeServices,
   autofillSingleService,
@@ -87,6 +87,33 @@ async function currentService(ctx: FlowContext): Promise<ServiceSummary | undefi
   return activeServices(account).find((s) => s.serviceId === ctx.slots.serviceId);
 }
 
+/** Loads eligible offers; jumps straight to the quote when a requested speed matches one. */
+async function loadOffers(ctx: FlowContext): Promise<ActionResult> {
+  const current = await currentService(ctx);
+  if (!current) {
+    return { replies: [{ text: "I couldn't find that service on your account." }], next: END, outcome: 'service_not_found' };
+  }
+  if (current.downloadMbps >= Math.max(...ADVERTISED_TIERS_MBPS)) {
+    return { replies: [{ text: "You're already on our fastest plan - nothing to upgrade to right now!" }], next: END, outcome: 'already_top_tier' };
+  }
+  const available = await ctx.clients.billing.listUpgradeOffers(ctx.principal.accountId, current.serviceId, ctx.request);
+  const offers = eligibleUpgrades(current, available);
+  if (offers.length === 0) {
+    const text = `There are no faster plans available at ${current.serviceAddress.postcode} yet. We'll let you know when that changes.`;
+    return { replies: [{ text }], next: END, outcome: 'no_offers' };
+  }
+  storeOffers(ctx, offers);
+  const desired = ctx.slots.desiredMbps;
+  if (typeof desired === 'number') {
+    const match = offers.find((o) => o.downloadMbps === desired);
+    if (match) {
+      ctx.slots.planCode = match.code;
+      return { next: 'quote' };
+    }
+  }
+  return { replies: [offersReply(readOffers(ctx), current)], next: 'planCode' };
+}
+
 export const planUpgradeFlow: FlowDefinition = {
   id: 'plan_upgrade',
   intent: 'PLAN_UPGRADE',
@@ -111,27 +138,7 @@ export const planUpgradeFlow: FlowDefinition = {
       kind: 'action',
       async run(ctx) {
         try {
-          const current = await currentService(ctx);
-          if (!current) {
-            return { replies: [{ text: "I couldn't find that service on your account." }], next: END, outcome: 'service_not_found' };
-          }
-          if (current.downloadMbps >= Math.max(...ADVERTISED_TIERS_MBPS)) {
-            return { replies: [{ text: "You're already on our fastest plan - nothing to upgrade to right now!" }], next: END, outcome: 'already_top_tier' };
-          }
-          const offers = eligibleUpgrades(current, await ctx.clients.billing.listUpgradeOffers(ctx.principal.accountId, current.serviceId, ctx.request));
-          if (offers.length === 0) {
-            return { replies: [{ text: `There are no faster plans available at ${current.serviceAddress.postcode} yet. We'll let you know when that changes.` }], next: END, outcome: 'no_offers' };
-          }
-          storeOffers(ctx, offers);
-          const desired = ctx.slots.desiredMbps;
-          if (typeof desired === 'number') {
-            const match = offers.find((o) => o.downloadMbps === desired);
-            if (match) {
-              ctx.slots.planCode = match.code;
-              return { next: 'quote' };
-            }
-          }
-          return { replies: [offersReply(readOffers(ctx), current)], next: 'planCode' };
+          return await loadOffers(ctx);
         } catch (error) {
           return downstreamFailure(ctx, error, 'load upgrade options');
         }

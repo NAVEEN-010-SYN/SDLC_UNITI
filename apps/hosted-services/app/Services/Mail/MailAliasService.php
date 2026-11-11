@@ -142,6 +142,11 @@ final class MailAliasService
 
     private function find(EmailDomain $domain, string $aliasId): MailAlias
     {
-        return $this->domains->findAlias($domain->id, $aliasId) ?? throw ResourceNotFoundException::of('Alias', $aliasId);
+        $alias = $this->domains->findAlias($domain->id, $aliasId);
+        if ($alias === null) {
+            throw ResourceNotFoundException::of('Alias', $aliasId);
+        }
+
+        return $alias;
     }
 }

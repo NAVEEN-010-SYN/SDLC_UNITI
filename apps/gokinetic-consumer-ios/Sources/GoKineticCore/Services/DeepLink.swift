@@ -56,23 +56,36 @@ public enum DeepLink: Equatable, Hashable, Sendable {
         }
         let id = segments.count > 1 ? segments[1] : nil
         if let id, !DeepLink.isSafeIdentifier(id) { return nil }
-        switch (head, id) {
-        case ("home", _), ("dashboard", _): self = .dashboard
-        case ("bills", nil): self = .bills
-        case ("bills", let id?): self = .invoice(id: id)
-        case ("pay", let id): self = .payBill(invoiceId: id)
-        case ("plan", nil): self = .plan
-        case ("plan", "upgrade"?), ("upgrade", _): self = .upgrade
-        case ("usage", _): self = .usage
-        case ("wifi", nil): self = .wifi
-        case ("wifi", "devices"?), ("devices", _): self = .devices
-        case ("speedtest", _), ("speed-test", _): self = .speedTest
-        case ("outages", _), ("outage", _): self = .outages
-        case ("tickets", nil), ("support", nil): self = .tickets
-        case ("tickets", let id?), ("support", let id?): self = .ticket(id: id)
-        case ("appointments", nil): self = .appointments
-        case ("appointments", let id?): self = .appointment(id: id)
-        case ("settings", _): self = .settings
+        guard let link = DeepLink.link(head: head, id: id) else { return nil }
+        self = link
+    }
+
+    /// Maps the first path segment (and optional id) to a link.
+    private static func link(head: String, id: String?) -> DeepLink? {
+        switch head {
+        case "home", "dashboard": return .dashboard
+        case "bills":
+            if let id { return .invoice(id: id) }
+            return .bills
+        case "pay": return .payBill(invoiceId: id)
+        case "plan":
+            if id == nil { return .plan }
+            return id == "upgrade" ? .upgrade : nil
+        case "upgrade": return .upgrade
+        case "usage": return .usage
+        case "wifi":
+            if id == nil { return .wifi }
+            return id == "devices" ? .devices : nil
+        case "devices": return .devices
+        case "speedtest", "speed-test": return .speedTest
+        case "outages", "outage": return .outages
+        case "tickets", "support":
+            if let id { return .ticket(id: id) }
+            return .tickets
+        case "appointments":
+            if let id { return .appointment(id: id) }
+            return .appointments
+        case "settings": return .settings
         default: return nil
         }
     }
@@ -102,7 +115,7 @@ public enum PushCategory: String, Sendable {
     case planChangeCompleted = "PLAN_CHANGE_COMPLETED"
 }
 
-/// Parsed push payload. Pure logic — the UIKit delegate hands the raw
+/// Parsed push payload. Pure logic - the UIKit delegate hands the raw
 /// `userInfo` dictionary here and routes the resulting link.
 public struct PushNotification: Equatable, Sendable {
     public let category: PushCategory

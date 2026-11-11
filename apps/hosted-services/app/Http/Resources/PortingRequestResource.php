@@ -31,23 +31,39 @@ final class PortingRequestResource extends ApiResource
             'billingTelephoneNumber' => $port->billing_telephone_number,
             'authorisedName' => $port->authorised_name,
             'serviceAddress' => $port->service_address,
-            'requestedPortDate' => $port->requested_port_date?->toDateString(),
+            'requestedPortDate' => $port->requested_port_date === null ? null : $port->requested_port_date->toDateString(),
             'focAt' => self::iso($port->foc_at),
             'carrierReference' => $port->carrier_reference,
             'rejectionReason' => $port->rejection_reason,
             'resubmissionCount' => $port->resubmission_count,
             'loaProvided' => $port->loa_document_ref !== null,
             'timeline' => app(PortingService::class)->timeline($port),
-            'events' => $this->whenLoaded('events', fn () => $port->events->map(static fn (PortingEvent $e) => [
-                'from' => $e->from_status?->value,
+            'events' => $this->whenLoaded('events', function () use ($port) {
+                return self::eventRows($port);
+            }),
+            'createdAt' => self::iso($port->created_at),
+            'updatedAt' => self::iso($port->updated_at),
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private static function eventRows(PortingRequest $port): array
+    {
+        $rows = [];
+        foreach ($port->events as $e) {
+            /** @var PortingEvent $e */
+            $rows[] = [
+                'from' => $e->from_status === null ? null : $e->from_status->value,
                 'to' => $e->to_status->value,
                 'actor' => $e->actor,
                 'note' => $e->note,
                 'occurredAt' => self::iso($e->occurred_at),
-            ])->all()),
-            'createdAt' => self::iso($port->created_at),
-            'updatedAt' => self::iso($port->updated_at),
-        ];
+            ];
+        }
+
+        return $rows;
     }
 
     private static function mask(string $value): string

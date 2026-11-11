@@ -64,14 +64,29 @@ public sealed class PricingService
         var discountBps = book.DiscountBpsFor(partnerActiveLines);
         var discounted = list.Subtract(list.PercentageOf(discountBps));
 
-        var (oneOffMinor, label) = type switch
+        long oneOffMinor;
+        string label;
+        switch (type)
         {
-            OrderType.Provide => (entry.ConnectionChargeMinor, "connection"),
-            OrderType.Migrate => (entry.MigrationChargeMinor, "migration"),
-            OrderType.Modify => (entry.ModifyChargeMinor, "modify"),
-            OrderType.Cease => (0L, "none"),
-            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
-        };
+            case OrderType.Provide:
+                oneOffMinor = entry.ConnectionChargeMinor;
+                label = "connection";
+                break;
+            case OrderType.Migrate:
+                oneOffMinor = entry.MigrationChargeMinor;
+                label = "migration";
+                break;
+            case OrderType.Modify:
+                oneOffMinor = entry.ModifyChargeMinor;
+                label = "modify";
+                break;
+            case OrderType.Cease:
+                oneOffMinor = 0L;
+                label = "none";
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type), type, null);
+        }
 
         return new PriceQuote(
             entry.ProductCode,

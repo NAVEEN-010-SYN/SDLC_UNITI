@@ -14,7 +14,7 @@ export class PortalTitleStrategy extends TitleStrategy {
 
   override updateTitle(snapshot: RouterStateSnapshot): void {
     const page = this.buildTitle(snapshot);
-    this.title.setTitle(page ? `${page} · Go Kinetic Business` : 'Go Kinetic Business');
+    this.title.setTitle(page ? `${page} \u00B7 Go Kinetic Business` : 'Go Kinetic Business');
   }
 }
 

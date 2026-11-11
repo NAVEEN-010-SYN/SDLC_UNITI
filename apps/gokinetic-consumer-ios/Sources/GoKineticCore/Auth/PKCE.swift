@@ -10,7 +10,7 @@ public struct PKCE: Sendable, Equatable {
     public let challenge: String
     public let method = "S256"
 
-    /// Unreserved characters allowed in a code verifier (RFC 7636 §4.1).
+    /// Unreserved characters allowed in a code verifier (RFC 7636 Section 4.1).
     static let verifierAlphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
     public init(verifier: String) throws {

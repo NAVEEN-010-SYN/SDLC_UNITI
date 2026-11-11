@@ -74,7 +74,6 @@ export class DialogEngine {
   private async route(conversation: Conversation, text: string, prediction: IntentPrediction, request: RequestContext): Promise<TurnResult> {
     const replies: BotReply[] = [];
     const events: TurnEvent[] = [];
-    const active = conversation.activeFlow ? this.deps.flows.get(conversation.activeFlow.flowId) : undefined;
     const targetFlow = this.deps.flows.forIntent(prediction.intent);
 
     // 1. Explicit cancel always wins.
@@ -87,40 +86,12 @@ export class DialogEngine {
     }
 
     // 2. Continue the active flow unless a different, confident flow intent interrupts it.
-    if (active && conversation.activeFlow) {
-      const waiting = active.states[conversation.activeFlow.state];
-      const capturesFreeText = waiting?.kind === 'slot' && waiting.captureFreeText === true;
-      // Quick-reply payloads (source "context") are explicit choices and may always interrupt;
-      // typed text cannot interrupt a free-text slot such as a fault description.
-      const interrupts =
-        targetFlow !== undefined &&
-        targetFlow.id !== active.id &&
-        prediction.confidence >= INTERRUPT_CONFIDENCE &&
-        (prediction.source === 'context' || !capturesFreeText);
-      if (!interrupts || !this.isAllowed(targetFlow!, conversation.principal)) {
-        const outcome = await stepFlow(active, conversation.activeFlow, this.context(conversation, request), {
-          text,
-          entities: prediction.entities,
-        });
-        this.applyOutcome(conversation, active, outcome, replies, events);
-        await this.resumeIfIdle(conversation, request, replies, events);
-        return { replies, events };
-      }
-      this.suspend(conversation, events);
-    }
+    const continued = await this.continueActive(conversation, text, prediction, targetFlow, request, replies, events);
+    if (continued) return { replies, events };
 
     // 3. Start a new flow for a routable intent.
     if (targetFlow) {
-      if (!this.isAllowed(targetFlow, conversation.principal)) {
-        replies.push({
-          text: `Sorry, your account role can't do that here. Please ask your account administrator, or I can connect you to our team.`,
-          quickReplies: [{ label: 'Talk to an agent', payload: quickReplyPayload('TALK_TO_AGENT') }],
-        });
-        return { replies, events };
-      }
-      conversation.fallbackCount = 0;
-      await this.start(conversation, targetFlow, prediction, request, replies, events);
-      await this.resumeIfIdle(conversation, request, replies, events);
+      await this.startRequested(conversation, targetFlow, prediction, request, replies, events);
       return { replies, events };
     }
 
@@ -129,6 +100,66 @@ export class DialogEngine {
       this.conversational(conversation, prediction, replies, events);
     }
     return { replies, events };
+  }
+
+  /** Steps the active flow; returns false when there is none or it was suspended for an interrupt. */
+  private async continueActive(
+    conversation: Conversation,
+    text: string,
+    prediction: IntentPrediction,
+    targetFlow: FlowDefinition | undefined,
+    request: RequestContext,
+    replies: BotReply[],
+    events: TurnEvent[],
+  ): Promise<boolean> {
+    const active = conversation.activeFlow ? this.deps.flows.get(conversation.activeFlow.flowId) : undefined;
+    if (!active || !conversation.activeFlow) return false;
+
+    if (this.interrupts(active, conversation, prediction, targetFlow)) {
+      this.suspend(conversation, events);
+      return false;
+    }
+    const input = { text, entities: prediction.entities };
+    const outcome = await stepFlow(active, conversation.activeFlow, this.context(conversation, request), input);
+    this.applyOutcome(conversation, active, outcome, replies, events);
+    await this.resumeIfIdle(conversation, request, replies, events);
+    return true;
+  }
+
+  private interrupts(
+    active: FlowDefinition,
+    conversation: Conversation,
+    prediction: IntentPrediction,
+    targetFlow: FlowDefinition | undefined,
+  ): boolean {
+    if (targetFlow === undefined || targetFlow.id === active.id) return false;
+    if (prediction.confidence < INTERRUPT_CONFIDENCE) return false;
+    const waiting = conversation.activeFlow ? active.states[conversation.activeFlow.state] : undefined;
+    const capturesFreeText = waiting?.kind === 'slot' && waiting.captureFreeText === true;
+    // Quick-reply payloads (source "context") are explicit choices and may always interrupt;
+    // typed text cannot interrupt a free-text slot such as a fault description.
+    if (prediction.source !== 'context' && capturesFreeText) return false;
+    return this.isAllowed(targetFlow, conversation.principal);
+  }
+
+  private async startRequested(
+    conversation: Conversation,
+    targetFlow: FlowDefinition,
+    prediction: IntentPrediction,
+    request: RequestContext,
+    replies: BotReply[],
+    events: TurnEvent[],
+  ): Promise<void> {
+    if (!this.isAllowed(targetFlow, conversation.principal)) {
+      replies.push({
+        text: `Sorry, your account role can't do that here. Please ask your account administrator, or I can connect you to our team.`,
+        quickReplies: [{ label: 'Talk to an agent', payload: quickReplyPayload('TALK_TO_AGENT') }],
+      });
+      return;
+    }
+    conversation.fallbackCount = 0;
+    await this.start(conversation, targetFlow, prediction, request, replies, events);
+    await this.resumeIfIdle(conversation, request, replies, events);
   }
 
   private conversational(conversation: Conversation, prediction: IntentPrediction, replies: BotReply[], events: TurnEvent[]): void {
@@ -217,7 +248,9 @@ export class DialogEngine {
   }
 
   private isAllowed(flow: FlowDefinition, principal: Principal): boolean {
-    return !flow.allowedRoles || principal.roles.some((r) => flow.allowedRoles!.includes(r));
+    const allowed = flow.allowedRoles;
+    if (!allowed) return true;
+    return principal.roles.some((r) => allowed.includes(r));
   }
 
   private context(conversation: Conversation, request: RequestContext): FlowContext {

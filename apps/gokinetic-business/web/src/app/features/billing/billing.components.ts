@@ -3,7 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, input, signal } f
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { Subject, catchError, map, merge, of, switchMap } from 'rxjs';
+import { Observable, Subject, catchError, map, merge, of, switchMap } from 'rxjs';
 import { BillingApi, InvoiceFilter } from '../../core/api/portal-api';
 import { AuthService } from '../../core/auth/auth.service';
 import { ApiProblem } from '../../core/http/api-problem';
@@ -27,10 +27,19 @@ export function canDispute(invoice: Invoice, now: Date): boolean {
 /** Invoice lines grouped by category with subtotals, largest first. */
 export function groupLines(lines: InvoiceLine[]): Array<{ category: string; lines: InvoiceLine[]; subtotalMinor: number }> {
   const groups = new Map<string, InvoiceLine[]>();
-  for (const line of lines) groups.set(line.category, [...(groups.get(line.category) ?? []), line]);
-  return [...groups.entries()]
-    .map(([category, ls]) => ({ category, lines: ls, subtotalMinor: ls.reduce((acc, l) => acc + l.amountMinor, 0) }))
-    .sort((a, b) => b.subtotalMinor - a.subtotalMinor);
+  for (const line of lines) {
+    const list = groups.get(line.category) ?? [];
+    list.push(line);
+    groups.set(line.category, list);
+  }
+  const result: Array<{ category: string; lines: InvoiceLine[]; subtotalMinor: number }> = [];
+  for (const [category, categoryLines] of groups) {
+    let subtotalMinor = 0;
+    for (const l of categoryLines) subtotalMinor += l.amountMinor;
+    result.push({ category, lines: categoryLines, subtotalMinor });
+  }
+  result.sort((a, b) => b.subtotalMinor - a.subtotalMinor);
+  return result;
 }
 
 @Component({
@@ -87,14 +96,14 @@ export class InvoicesListComponent {
   imports: [StatusBadgeComponent, MoneyPipe, DatePipe, ProblemAlertComponent, RouterLink, ReactiveFormsModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a routerLink="/billing">← Invoices</a>
+    <a routerLink="/billing">\u2190 Invoices</a>
     <gkb-problem-alert [problem]="problem()" />
     @if (invoice(); as inv) {
       <header class="page-header">
         <h1>Invoice {{ inv.number }}</h1>
         <gkb-status-badge [status]="inv.status" />
       </header>
-      <p>Period {{ inv.period }} · issued {{ inv.issueDate | date: 'd MMM y' }} · due {{ inv.dueDate | date: 'd MMM y' }}
+      <p>Period {{ inv.period }} \u00B7 issued {{ inv.issueDate | date: 'd MMM y' }} \u00B7 due {{ inv.dueDate | date: 'd MMM y' }}
         @if (inv.daysOverdue > 0) { <strong class="text-danger">({{ inv.daysOverdue }} days overdue)</strong> }</p>
 
       @for (group of groups(); track group.category) {
@@ -135,12 +144,10 @@ export class InvoiceDetailComponent {
   readonly reason = new FormControl('', { nonNullable: true, validators: [Validators.required, Validators.minLength(10), Validators.maxLength(2000)] });
 
   private readonly refresh = new Subject<void>();
-  readonly invoice = toSignal(
-    merge(toObservable(this.id), this.refresh.pipe(map(() => this.id()))).pipe(
-      switchMap((id) => this.api.invoice(id).pipe(catchError((p: ApiProblem) => (this.problem.set(p), of(null)))))
-    ),
-    { initialValue: null as InvoiceDetail | null }
-  );
+  // Reload when the route id changes or after a dispute.
+  private readonly invoiceIds$ = merge(toObservable(this.id), this.refresh.pipe(map(() => this.id())));
+  private readonly invoice$ = this.invoiceIds$.pipe(switchMap((id) => this.loadInvoice(id)));
+  readonly invoice = toSignal(this.invoice$, { initialValue: null as InvoiceDetail | null });
   readonly groups = computed(() => groupLines(this.invoice()?.lines ?? []));
   readonly disputable = computed(() => {
     const inv = this.invoice();
@@ -168,5 +175,14 @@ export class InvoiceDetailComponent {
       next: (blob) => saveBlob(blob, `cost-allocation-${inv.number}.csv`),
       error: (p: ApiProblem) => this.problem.set(p)
     });
+  }
+
+  private loadInvoice(id: string): Observable<InvoiceDetail | null> {
+    return this.api.invoice(id).pipe(
+      catchError((p: ApiProblem) => {
+        this.problem.set(p);
+        return of(null);
+      })
+    );
   }
 }

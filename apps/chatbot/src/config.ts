@@ -84,6 +84,16 @@ function logLevel(raw: string | undefined): AppConfig['logLevel'] {
   throw new ConfigError(`LOG_LEVEL must be debug|info|warn|error, got "${raw}"`);
 }
 
+/** Splits a comma-separated value, trimming entries and dropping empty ones. */
+function parseList(raw: string | undefined): string[] {
+  const items: string[] = [];
+  for (const part of (raw ?? '').split(',')) {
+    const item = part.trim();
+    if (item.length > 0) items.push(item);
+  }
+  return items;
+}
+
 export function loadConfig(env: Env = process.env): AppConfig {
   const llmProvider = (optional(env, 'LLM_PROVIDER') ?? 'none').toLowerCase();
   if (llmProvider !== 'none' && llmProvider !== 'http') {
@@ -132,10 +142,7 @@ export function loadConfig(env: Env = process.env): AppConfig {
       batchSize: intValue(env, 'ANALYTICS_BATCH_SIZE', 25, 1),
       flushIntervalMs: intValue(env, 'ANALYTICS_FLUSH_INTERVAL_MS', 5000, 100),
     },
-    widgetAllowedOrigins: (optional(env, 'WIDGET_ALLOWED_ORIGINS') ?? '')
-      .split(',')
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0),
+    widgetAllowedOrigins: parseList(optional(env, 'WIDGET_ALLOWED_ORIGINS')),
   };
 
   if (config.llm.provider === 'http' && !config.llm.endpoint) {

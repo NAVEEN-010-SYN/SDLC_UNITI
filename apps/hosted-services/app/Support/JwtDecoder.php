@@ -90,8 +90,27 @@ final class JwtDecoder
             subject: $subject,
             roles: $roles,
             accountId: is_string($accountId) ? $accountId : null,
-            delegatedAccounts: is_array($delegated) ? array_values(array_filter($delegated, 'is_string')) : [],
+            delegatedAccounts: $this->stringList($delegated),
         );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function stringList(mixed $raw): array
+    {
+        if (!is_array($raw)) {
+            return [];
+        }
+
+        $result = [];
+        foreach ($raw as $item) {
+            if (is_string($item)) {
+                $result[] = $item;
+            }
+        }
+
+        return $result;
     }
 
     /**

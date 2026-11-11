@@ -22,11 +22,11 @@ const PARTNER_ACTIONS: Record<string, { label: string; needsNote: boolean }> = {
     @if (fault(); as f) {
       <h1>{{ f.reference }} <span class="badge">{{ f.status | statusLabel }}</span></h1>
       <div class="card">
-        <p>{{ f.priority }} · {{ f.category | statusLabel }} · {{ f.careLevel }} care · UPRN {{ f.uprn }}</p>
+        <p>{{ f.priority }} &middot; {{ f.category | statusLabel }} &middot; {{ f.careLevel }} care &middot; UPRN {{ f.uprn }}</p>
         <p>{{ f.description }}</p>
         <p>Repair SLA <span class="badge {{ f.sla.status }}">{{ f.sla.status | statusLabel }}</span>
           {{ f.sla.elapsedWorkingHours }} of {{ f.sla.targetWorkingHours }} h ({{ f.sla.calendar }} calendar)
-          @if (f.sla.dueAt) { · due {{ f.sla.dueAt | date: 'd MMM y, HH:mm' }} }</p>
+          @if (f.sla.dueAt) { &middot; due {{ f.sla.dueAt | date: 'd MMM y, HH:mm' }} }</p>
         @if (f.serviceCreditMinor) { <p>Service credit {{ f.serviceCreditMinor | money }}: {{ f.serviceCreditBasis }}</p> }
       </div>
       <div class="card row">
@@ -38,7 +38,7 @@ const PARTNER_ACTIONS: Record<string, { label: string; needsNote: boolean }> = {
       </div>
       <h2>Timeline</h2>
       <ul class="timeline">
-        @for (n of f.notes; track $index) { <li><span class="muted">{{ n.at | date: 'd MMM y, HH:mm' }} · {{ n.author }}</span><br />{{ n.text }}</li> }
+        @for (n of f.notes; track $index) { <li><span class="muted">{{ n.at | date: 'd MMM y, HH:mm' }} &middot; {{ n.author }}</span><br />{{ n.text }}</li> }
       </ul>
     }
   `,

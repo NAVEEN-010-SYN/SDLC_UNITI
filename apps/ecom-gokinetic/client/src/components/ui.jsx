@@ -3,7 +3,9 @@ import { statusLabel } from '../lib/format';
 /** Small presentational building blocks shared by every page. */
 
 export function Field({ label, error, hint, as: Control = 'input', children, ...input }) {
-  const describedBy = error ? `${input.id}-error` : hint ? `${input.id}-hint` : undefined;
+  let describedBy;
+  if (error) describedBy = `${input.id}-error`;
+  else if (hint) describedBy = `${input.id}-hint`;
   if (input.type === 'checkbox') {
     return (
       <div className="field field--checkbox">
@@ -28,7 +30,7 @@ export function Field({ label, error, hint, as: Control = 'input', children, ...
 export function Button({ pending, children, variant = 'primary', ...rest }) {
   return (
     <button className={`btn btn--${variant}`} disabled={pending || rest.disabled} aria-busy={pending || undefined} {...rest}>
-      {pending ? 'Please wait…' : children}
+      {pending ? 'Please wait\u2026' : children}
     </button>
   );
 }

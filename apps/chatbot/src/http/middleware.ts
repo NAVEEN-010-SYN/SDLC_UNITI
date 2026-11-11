@@ -53,6 +53,16 @@ export interface TokenClaims {
   name?: string;
 }
 
+/** Keeps only the role claims this service recognises. */
+function knownRoles(raw: unknown): Role[] {
+  const roles: Role[] = [];
+  if (!Array.isArray(raw)) return roles;
+  for (const r of raw) {
+    if (KNOWN_ROLES.includes(r as Role)) roles.push(r as Role);
+  }
+  return roles;
+}
+
 /** Verifies a bearer JWT and maps its claims onto a Principal. Shared with the WS gateway. */
 export function verifyToken(token: string, config: AuthConfig): Principal {
   const key = config.publicKey ?? config.sharedSecret;
@@ -70,7 +80,7 @@ export function verifyToken(token: string, config: AuthConfig): Principal {
   }
   if (!claims.sub || !claims.account_id) throw new UnauthorizedError('Token is missing sub or account_id');
   if (!/^ACC-\d{8}$/.test(claims.account_id)) throw new UnauthorizedError('Token account_id is malformed');
-  const roles = Array.isArray(claims.roles) ? claims.roles.filter((r): r is Role => KNOWN_ROLES.includes(r as Role)) : [];
+  const roles = knownRoles(claims.roles);
   if (roles.length === 0) throw new UnauthorizedError('Token carries no recognised roles');
   return { userId: claims.sub, accountId: claims.account_id, roles, displayName: claims.name };
 }
@@ -124,24 +134,28 @@ export function asyncHandler(fn: (req: ChatRequest, res: Response) => Promise<vo
   };
 }
 
+function toAppError(error: unknown): AppError {
+  if (error instanceof AppError) return error;
+  const isJsonSyntax = error instanceof SyntaxError && 'body' in (error as object);
+  if (isJsonSyntax) return new AppError(400, 'malformed-json', 'Malformed JSON body');
+  return new AppError(500, 'internal', 'Internal server error');
+}
+
 /** RFC 7807 error responder. Unknown errors become a generic 500 without leaking internals. */
 export function problemHandler(logger: Logger) {
   return (error: unknown, req: Request, res: Response, _next: NextFunction): void => {
     const correlation = (req as ChatRequest).correlationId;
-    const isJsonSyntax = error instanceof SyntaxError && 'body' in (error as object);
-    const appError =
-      error instanceof AppError
-        ? error
-        : isJsonSyntax
-          ? new AppError(400, 'malformed-json', 'Malformed JSON body')
-          : new AppError(500, 'internal', 'Internal server error');
+    const appError = toAppError(error);
 
     if (appError.status >= 500) {
       logger.error('request failed', { error, correlationId: correlation, path: req.path });
     } else {
       logger.info('request rejected', { status: appError.status, code: appError.code, correlationId: correlation });
     }
-    res.status(appError.status).type('application/problem+json').send(JSON.stringify(appError.toProblem(req.originalUrl, correlation)));
+    const body = JSON.stringify(appError.toProblem(req.originalUrl, correlation));
+    res.status(appError.status);
+    res.type('application/problem+json');
+    res.send(body);
   };
 }
 

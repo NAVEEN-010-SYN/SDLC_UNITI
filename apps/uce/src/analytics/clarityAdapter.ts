@@ -89,8 +89,10 @@ export class ClarityAdapter implements AnalyticsAdapter {
 
   private installStub(): void {
     if (this.win.clarity) return;
+    // Queues calls until the Clarity tag loads and replays them.
     const stub: ClarityFn = (...args: unknown[]) => {
-      (stub.q = stub.q ?? []).push(args);
+      if (!stub.q) stub.q = [];
+      stub.q.push(args);
     };
     this.win.clarity = stub;
   }

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { checksum, DiffEntry, diffConfig, summarizeDiff } from '../domain/configDiff';
+import { checksum, DiffEntry, DiffOp, diffConfig, summarizeDiff } from '../domain/configDiff';
 import type { ConfigBackup, Page } from '../domain/types';
 import { BusinessRuleProblem, NotFoundProblem } from '../errors/problem';
 import type { Logger } from '../logging/logger';
@@ -14,7 +14,7 @@ export interface BackupDiff {
   from: { id: string | 'LIVE'; takenAt: string; checksum: string };
   to: { id: string | 'LIVE'; takenAt: string; checksum: string };
   identical: boolean;
-  summary: ReturnType<typeof summarizeDiff>;
+  summary: Record<DiffOp, number>;
   entries: DiffEntry[];
 }
 

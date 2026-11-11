@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import type { PolicyPreviewResult } from '../api/sdwan';
 import type { BusinessPolicy } from '../api/types';
 import { useApi, useAuth } from '../auth/AuthContext';
 import { canRequestChanges } from '../auth/token';
@@ -20,7 +21,7 @@ function describeMatch(p: BusinessPolicy): string {
     m.protocol && m.protocol !== 'ANY' ? `${m.protocol}${m.destinationPorts?.length ? `/${formatPorts(m.destinationPorts)}` : ''}` : null,
     m.dscp !== undefined ? `DSCP ${m.dscp}` : null,
   ].filter(Boolean);
-  return parts.length ? parts.join(' · ') : 'all traffic';
+  return parts.length ? parts.join(' \u00B7 ') : 'all traffic';
 }
 
 function describeSteering(p: BusinessPolicy): string {
@@ -43,7 +44,7 @@ export function PoliciesPage() {
   const summary = useMemo(() => summarizePolicyChanges(current.data?.policies ?? [], draft), [current.data, draft]);
   const dirty = hasChanges(summary);
   const preview = useMutation(() => api.previewPolicies([edgeId!], draft));
-  const [previewResult, setPreviewResult] = useState<Awaited<ReturnType<typeof api.previewPolicies>>>();
+  const [previewResult, setPreviewResult] = useState<PolicyPreviewResult>();
   useEffect(() => setPreviewResult(undefined), [draft]);
   const submit = useMutation(() =>
     api.createChange({
@@ -104,10 +105,10 @@ export function PoliciesPage() {
                 {editable && (
                   <td className="row-actions">
                     <button type="button" aria-label={`Move ${p.name} up`} disabled={i === 0} onClick={() => setDraft(movePolicy(draft, i, -1))}>
-                      ↑
+                      &uarr;
                     </button>
                     <button type="button" aria-label={`Move ${p.name} down`} disabled={i === draft.length - 1} onClick={() => setDraft(movePolicy(draft, i, 1))}>
-                      ↓
+                      &darr;
                     </button>
                     <button type="button" onClick={() => setDraft(togglePolicy(draft, p.id))}>
                       {p.enabled ? 'Disable' : 'Enable'}

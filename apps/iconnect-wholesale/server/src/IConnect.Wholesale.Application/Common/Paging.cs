@@ -8,12 +8,18 @@ public sealed record PageRequest
     public PageRequest(int page, int pageSize)
     {
         Page = page < 1 ? 1 : page;
-        PageSize = pageSize switch
+        if (pageSize < 1)
         {
-            < 1 => DefaultPageSize,
-            > MaxPageSize => MaxPageSize,
-            _ => pageSize,
-        };
+            PageSize = DefaultPageSize;
+        }
+        else if (pageSize > MaxPageSize)
+        {
+            PageSize = MaxPageSize;
+        }
+        else
+        {
+            PageSize = pageSize;
+        }
     }
 
     public int Page { get; }

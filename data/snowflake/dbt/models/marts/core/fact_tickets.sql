@@ -25,24 +25,25 @@ clock_end as (
     from tickets
 ),
 
-paused as (
+pending_intervals as (
     -- Clip each PENDING_CUSTOMER interval to the part that falls before the
     -- resolution clock stopped.
     select
         i.ticket_id,
-        sum(greatest(
-            datediff(
-                minute,
-                i.entered_at,
-                least(coalesce(i.exited_at, c.resolution_clock_end), c.resolution_clock_end)
-            ),
-            0
-        )) as paused_minutes
+        i.entered_at,
+        least(coalesce(i.exited_at, c.resolution_clock_end), c.resolution_clock_end) as clipped_exit_at
     from {{ ref('stg_uconnect__ticket_status_intervals') }} i
     join clock_end c on c.ticket_id = i.ticket_id
     where i.ticket_status = 'PENDING_CUSTOMER'
       and i.entered_at < c.resolution_clock_end
-    group by i.ticket_id
+),
+
+paused as (
+    select
+        ticket_id,
+        sum(greatest(datediff(minute, entered_at, clipped_exit_at), 0)) as paused_minutes
+    from pending_intervals
+    group by ticket_id
 ),
 
 measured as (

@@ -197,43 +197,9 @@ public struct PayBillView: View {
 
     private func form(_ setup: PayBillViewModel.Setup) -> some View {
         Form {
-            Section(L10n.string("payment.amount")) {
-                Picker(L10n.string("payment.amount"), selection: $viewModel.amountChoice) {
-                    ForEach(setup.options) { option in
-                        HStack {
-                            Text(viewModel.label(for: option))
-                            Spacer()
-                            Text(viewModel.amountText(option.amount)).monospacedDigit()
-                        }
-                        .tag(Optional(PayBillViewModel.AmountChoice.option(option.id)))
-                    }
-                    Text(L10n.string("payment.option.custom")).tag(Optional(PayBillViewModel.AmountChoice.custom))
-                }
-                .pickerStyle(.inline)
-                .labelsHidden()
-                if viewModel.amountChoice == .custom {
-                    ValidatedField(L10n.string("payment.customAmount"), text: $viewModel.customAmountText,
-                                   message: viewModel.amountMessage, contentType: .amount)
-                        .onChange(of: viewModel.customAmountText) { _ in viewModel.customAmountEdited() }
-                } else if let message = viewModel.amountMessage {
-                    Text(message).font(.footnote).foregroundStyle(Theme.Palette.danger)
-                }
-            }
+            amountSection(setup)
 
-            Section(L10n.string("payment.method")) {
-                if setup.methods.isEmpty {
-                    Text(L10n.string("payment.noMethods")).foregroundStyle(.secondary)
-                } else {
-                    Picker(L10n.string("payment.method"), selection: $viewModel.selectedMethodId) {
-                        ForEach(setup.methods) { method in
-                            Text(method.displayName).tag(Optional(method.id))
-                        }
-                    }
-                }
-                if setup.hasExpiredMethods {
-                    Text(L10n.string("payment.expiredHidden")).font(.footnote).foregroundStyle(.secondary)
-                }
-            }
+            methodSection(setup)
 
             if case .failed(let failure) = viewModel.phase {
                 Section {
@@ -251,6 +217,52 @@ public struct PayBillView: View {
                 .listRowInsets(EdgeInsets())
             } footer: {
                 Text(L10n.string("payment.footer"))
+            }
+        }
+    }
+
+    private func amountSection(_ setup: PayBillViewModel.Setup) -> some View {
+        Section(L10n.string("payment.amount")) {
+            Picker(L10n.string("payment.amount"), selection: $viewModel.amountChoice) {
+                ForEach(setup.options) { option in
+                    amountOptionRow(option)
+                }
+                Text(L10n.string("payment.option.custom")).tag(Optional(PayBillViewModel.AmountChoice.custom))
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            if viewModel.amountChoice == .custom {
+                ValidatedField(L10n.string("payment.customAmount"), text: $viewModel.customAmountText,
+                               message: viewModel.amountMessage, contentType: .amount)
+                    .onChange(of: viewModel.customAmountText) { _ in viewModel.customAmountEdited() }
+            } else if let message = viewModel.amountMessage {
+                Text(message).font(.footnote).foregroundStyle(Theme.Palette.danger)
+            }
+        }
+    }
+
+    private func amountOptionRow(_ option: PaymentAmountOption) -> some View {
+        HStack {
+            Text(viewModel.label(for: option))
+            Spacer()
+            Text(viewModel.amountText(option.amount)).monospacedDigit()
+        }
+        .tag(Optional(PayBillViewModel.AmountChoice.option(option.id)))
+    }
+
+    private func methodSection(_ setup: PayBillViewModel.Setup) -> some View {
+        Section(L10n.string("payment.method")) {
+            if setup.methods.isEmpty {
+                Text(L10n.string("payment.noMethods")).foregroundStyle(.secondary)
+            } else {
+                Picker(L10n.string("payment.method"), selection: $viewModel.selectedMethodId) {
+                    ForEach(setup.methods) { method in
+                        Text(method.displayName).tag(Optional(method.id))
+                    }
+                }
+            }
+            if setup.hasExpiredMethods {
+                Text(L10n.string("payment.expiredHidden")).font(.footnote).foregroundStyle(.secondary)
             }
         }
     }

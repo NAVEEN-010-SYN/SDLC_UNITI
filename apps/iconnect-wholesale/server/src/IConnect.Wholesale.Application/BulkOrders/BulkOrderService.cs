@@ -55,6 +55,55 @@ public sealed class BulkOrderService
 
     public async Task<BulkUploadResultDto> UploadAsync(string fileName, byte[] content, bool dryRun, CancellationToken ct)
     {
+        var text = DecodeCsvFile(fileName, content);
+
+        var now = _clock.UtcNow;
+        var today = _calendars.Get(Domain.Sla.CalendarKind.BusinessHours).LocalDate(now);
+        var parse = BulkOrderCsvParser.Parse(text, today);
+        var errors = parse.Errors.ToList();
+        await AddUsedReferenceErrorsAsync(parse.Rows, errors, ct);
+
+        if (dryRun)
+        {
+            return new BulkUploadResultDto(null, fileName, errors.Count == 0 ? "VALID" : "INVALID", parse.DataRowCount,
+                CountRowsWithoutErrors(parse.Rows, errors), 0, 0, SortErrors(errors), Array.Empty<BulkOrderOutcomeDto>());
+        }
+
+        var hash = Convert.ToHexString(SHA256.HashData(content));
+        var previous = await _uploads.GetByHashAsync(_caller.PartnerId, hash, ct);
+        if (previous is not null && previous.Status == BulkUploadStatus.Submitted)
+        {
+            throw new ConflictException("bulk.duplicate_file", $"This file was already submitted on {previous.CreatedAt:yyyy-MM-dd HH:mm} UTC.");
+        }
+
+        var upload = new BulkUpload(_caller.PartnerId, fileName, hash, parse.DataRowCount, errors, now, _caller.ActorId);
+        await _uploads.AddAsync(upload, ct);
+
+        var outcomes = new List<BulkOrderOutcomeDto>();
+        if (upload.Status == BulkUploadStatus.Validated)
+        {
+            outcomes = await CreateOrdersAsync(upload, parse.Rows, now, ct);
+        }
+
+        await _uow.SaveChangesAsync(ct);
+        _logger.LogInformation("Bulk upload {UploadId} ({FileName}) by partner {PartnerId}: {Status}, {Rows} rows, {Errors} errors",
+            upload.Id, fileName, _caller.PartnerId, upload.Status, parse.DataRowCount, errors.Count);
+
+        return new BulkUploadResultDto(
+            upload.Id,
+            fileName,
+            upload.Status.ToString().ToUpperInvariant(),
+            parse.DataRowCount,
+            upload.Status == BulkUploadStatus.Submitted ? parse.Rows.Count : 0,
+            outcomes.Count(o => o.Status == "VALIDATED"),
+            outcomes.Count(o => o.Status == "FAILED"),
+            SortErrors(errors),
+            outcomes);
+    }
+
+    /// <summary>Checks size, extension and UTF-8 encoding, and returns the file text.</summary>
+    private static string DecodeCsvFile(string fileName, byte[] content)
+    {
         if (content.Length == 0)
         {
             throw new RequestValidationException("file", "The uploaded file is empty.");
@@ -80,65 +129,58 @@ public sealed class BulkOrderService
             throw new RequestValidationException("file", "The file must be UTF-8 encoded.");
         }
 
-        var now = _clock.UtcNow;
-        var today = _calendars.Get(Domain.Sla.CalendarKind.BusinessHours).LocalDate(now);
-        var parse = BulkOrderCsvParser.Parse(text, today);
-        var errors = parse.Errors.ToList();
+        return text;
+    }
 
-        foreach (var row in parse.Rows)
+    /// <summary>Rejects rows whose partner reference is already used by an existing order.</summary>
+    private async Task AddUsedReferenceErrorsAsync(IReadOnlyList<ParsedBulkRow> rows, List<BulkRowError> errors, CancellationToken ct)
+    {
+        foreach (var row in rows)
         {
-            if (await _orders.GetByPartnerReferenceAsync(_caller.PartnerId, row.Request.PartnerReference, ct) is { } existing)
+            var existing = await _orders.GetByPartnerReferenceAsync(_caller.PartnerId, row.Request.PartnerReference, ct);
+            if (existing is not null)
             {
                 errors.Add(new BulkRowError(row.Line, "partner_reference", "already_used", $"Partner reference already used by order {existing.Reference}."));
             }
         }
+    }
 
-        if (dryRun)
+    private static int CountRowsWithoutErrors(IReadOnlyList<ParsedBulkRow> rows, List<BulkRowError> errors)
+    {
+        var linesWithErrors = new HashSet<int>();
+        foreach (var e in errors)
         {
-            return new BulkUploadResultDto(null, fileName, errors.Count == 0 ? "VALID" : "INVALID", parse.DataRowCount,
-                parse.Rows.Count(r => errors.All(e => e.Row != r.Line)),
-                0, 0, SortErrors(errors), Array.Empty<BulkOrderOutcomeDto>());
+            linesWithErrors.Add(e.Row);
         }
 
-        var hash = Convert.ToHexString(SHA256.HashData(content));
-        if (await _uploads.GetByHashAsync(_caller.PartnerId, hash, ct) is { Status: BulkUploadStatus.Submitted } previous)
+        var count = 0;
+        foreach (var r in rows)
         {
-            throw new ConflictException("bulk.duplicate_file", $"This file was already submitted on {previous.CreatedAt:yyyy-MM-dd HH:mm} UTC.");
-        }
-
-        var upload = new BulkUpload(_caller.PartnerId, fileName, hash, parse.DataRowCount, errors, now, _caller.ActorId);
-        await _uploads.AddAsync(upload, ct);
-
-        var outcomes = new List<BulkOrderOutcomeDto>();
-        if (upload.Status == BulkUploadStatus.Validated)
-        {
-            var created = new List<Order>();
-            foreach (var row in parse.Rows)
+            if (!linesWithErrors.Contains(r.Line))
             {
-                var order = await _orderService.CreateAndValidateAsync(row.Request, upload.Id, ct);
-                created.Add(order);
-                outcomes.Add(new BulkOrderOutcomeDto(row.Line, order.PartnerReference, order.Reference,
-                    order.Status.ToString().ToUpperInvariant(), order.FailureReason));
+                count++;
             }
-
-            await _orders.AddRangeAsync(created, ct);
-            upload.MarkSubmitted(created.Count, now);
         }
 
-        await _uow.SaveChangesAsync(ct);
-        _logger.LogInformation("Bulk upload {UploadId} ({FileName}) by partner {PartnerId}: {Status}, {Rows} rows, {Errors} errors",
-            upload.Id, fileName, _caller.PartnerId, upload.Status, parse.DataRowCount, errors.Count);
+        return count;
+    }
 
-        return new BulkUploadResultDto(
-            upload.Id,
-            fileName,
-            upload.Status.ToString().ToUpperInvariant(),
-            parse.DataRowCount,
-            upload.Status == BulkUploadStatus.Submitted ? parse.Rows.Count : 0,
-            outcomes.Count(o => o.Status == "VALIDATED"),
-            outcomes.Count(o => o.Status == "FAILED"),
-            SortErrors(errors),
-            outcomes);
+    private async Task<List<BulkOrderOutcomeDto>> CreateOrdersAsync(BulkUpload upload, IReadOnlyList<ParsedBulkRow> rows, DateTimeOffset now,
+        CancellationToken ct)
+    {
+        var outcomes = new List<BulkOrderOutcomeDto>();
+        var created = new List<Order>();
+        foreach (var row in rows)
+        {
+            var order = await _orderService.CreateAndValidateAsync(row.Request, upload.Id, ct);
+            created.Add(order);
+            outcomes.Add(new BulkOrderOutcomeDto(row.Line, order.PartnerReference, order.Reference,
+                order.Status.ToString().ToUpperInvariant(), order.FailureReason));
+        }
+
+        await _orders.AddRangeAsync(created, ct);
+        upload.MarkSubmitted(created.Count, now);
+        return outcomes;
     }
 
     private static IReadOnlyList<BulkRowError> SortErrors(IEnumerable<BulkRowError> errors) =>

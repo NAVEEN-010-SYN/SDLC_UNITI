@@ -3,6 +3,7 @@ package com.uniti.qa.pages.epp;
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import org.openqa.selenium.By;
@@ -59,11 +60,20 @@ public final class DealsPage extends BasePage {
 
     public List<DealRow> rows() {
         waits.visible(GRID);
-        return driver.findElements(ROWS).stream().map(DealRow::new).toList();
+        List<DealRow> rows = new ArrayList<>();
+        for (WebElement element : driver.findElements(ROWS)) {
+            rows.add(new DealRow(element));
+        }
+        return rows;
     }
 
     public Optional<DealRow> rowFor(String customerName) {
-        return rows().stream().filter(row -> row.customerName().equals(customerName)).findFirst();
+        for (DealRow row : rows()) {
+            if (row.customerName().equals(customerName)) {
+                return Optional.of(row);
+            }
+        }
+        return Optional.empty();
     }
 
     public boolean isEmpty() {
@@ -71,7 +81,11 @@ public final class DealsPage extends BasePage {
     }
 
     public DealDetailPage open(String customerName) {
-        DealRow row = rowFor(customerName).orElseThrow(() -> new IllegalStateException("No deal row for " + customerName));
+        Optional<DealRow> match = rowFor(customerName);
+        if (match.isEmpty()) {
+            throw new IllegalStateException("No deal row for " + customerName);
+        }
+        DealRow row = match.get();
         row.element.findElement(By.cssSelector("a[data-testid='deal-link']")).click();
         DealDetailPage detail = new DealDetailPage(driver, baseUrl);
         detail.waitUntilLoaded();

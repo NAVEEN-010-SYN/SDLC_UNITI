@@ -25,8 +25,8 @@ import { groupByRow, precheckCsv } from './csv-precheck';
     @if (result(); as r) {
       <div class="card">
         <p><span class="badge {{ r.status }}">{{ r.status | statusLabel }}</span>
-          {{ r.rowCount }} rows · {{ r.validRows }} valid
-          @if (r.uploadId) { · {{ r.ordersCreated }} accepted, {{ r.ordersRejected }} rejected by inventory checks }</p>
+          {{ r.rowCount }} rows &middot; {{ r.validRows }} valid
+          @if (r.uploadId) { &middot; {{ r.ordersCreated }} accepted, {{ r.ordersRejected }} rejected by inventory checks }</p>
       </div>
       @if (r.orders.length) {
         <table>

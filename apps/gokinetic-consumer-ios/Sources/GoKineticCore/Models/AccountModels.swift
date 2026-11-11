@@ -40,9 +40,9 @@ public struct AccountID: RawRepresentable, Codable, Hashable, Sendable, CustomSt
         return raw.dropFirst(4).allSatisfy { ("0"..."9").contains($0) }
     }
 
-    /// Masked form for display in shared spaces, e.g. `ACC-••••5678`.
+    /// Masked form for display in shared spaces, e.g. `ACC-****5678`.
     public var masked: String {
-        "ACC-••••" + rawValue.suffix(4)
+        "ACC-\u{2022}\u{2022}\u{2022}\u{2022}" + rawValue.suffix(4)
     }
 
     public var description: String { rawValue }

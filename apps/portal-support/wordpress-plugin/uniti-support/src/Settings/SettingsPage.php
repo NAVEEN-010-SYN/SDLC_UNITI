@@ -39,11 +39,7 @@ final class SettingsPage
         register_setting(self::GROUP, Options::OPTION_NAME, [
             'type' => 'object',
             'show_in_rest' => false,
-            'sanitize_callback' => static function (mixed $input): array {
-                $current = get_option(Options::OPTION_NAME, []);
-
-                return Options::sanitize($input, is_array($current) ? $current : []);
-            },
+            'sanitize_callback' => [self::class, 'sanitizeOptions'],
         ]);
 
         add_settings_section('api', __('Content API', 'uniti-support'), '__return_false', self::PAGE);
@@ -54,14 +50,24 @@ final class SettingsPage
         $this->field('display', 'status_cache_seconds', __('Status cache (seconds)', 'uniti-support'), 'number');
         $this->field('display', 'kb_results_per_page', __('Knowledge base results per page', 'uniti-support'), 'number');
 
-        add_settings_field('banner_min_severity', __('Show banner from severity', 'uniti-support'), function (): void {
-            $current = $this->options->get('banner_min_severity');
-            printf('<select name="%s[banner_min_severity]">', esc_attr(Options::OPTION_NAME));
-            foreach (['minor', 'major', 'critical'] as $severity) {
-                printf('<option value="%1$s" %2$s>%3$s</option>', esc_attr($severity), selected($current, $severity, false), esc_html(ucfirst($severity)));
-            }
-            echo '</select>';
-        }, self::PAGE, 'display');
+        add_settings_field('banner_min_severity', __('Show banner from severity', 'uniti-support'), [$this, 'renderSeverityField'], self::PAGE, 'display');
+    }
+
+    public static function sanitizeOptions(mixed $input): array
+    {
+        $current = get_option(Options::OPTION_NAME, []);
+
+        return Options::sanitize($input, is_array($current) ? $current : []);
+    }
+
+    public function renderSeverityField(): void
+    {
+        $current = $this->options->get('banner_min_severity');
+        printf('<select name="%s[banner_min_severity]">', esc_attr(Options::OPTION_NAME));
+        foreach (['minor', 'major', 'critical'] as $severity) {
+            printf('<option value="%1$s" %2$s>%3$s</option>', esc_attr($severity), selected($current, $severity, false), esc_html(ucfirst($severity)));
+        }
+        echo '</select>';
     }
 
     public function render(): void
@@ -79,21 +85,31 @@ final class SettingsPage
 
     private function field(string $section, string $key, string $label, string $type): void
     {
-        add_settings_field($key, $label, function () use ($key, $type): void {
-            $isSecret = $type === 'password';
-            $value = $isSecret ? '' : $this->options->get($key);
-            $placeholder = $isSecret && $this->options->get($key) !== ''
-                ? __('Stored - leave blank to keep', 'uniti-support')
-                : '';
+        // WordPress passes the args array to the callback.
+        $args = ['key' => $key, 'type' => $type];
+        add_settings_field($key, $label, [$this, 'renderInputField'], self::PAGE, $section, $args);
+    }
 
-            printf(
-                '<input type="%1$s" class="regular-text" name="%2$s[%3$s]" value="%4$s" placeholder="%5$s" autocomplete="off" />',
-                esc_attr($type),
-                esc_attr(Options::OPTION_NAME),
-                esc_attr($key),
-                esc_attr($value),
-                esc_attr($placeholder),
-            );
-        }, self::PAGE, $section);
+    /** @param array{key: string, type: string} $args */
+    public function renderInputField(array $args): void
+    {
+        $key = $args['key'];
+        $type = $args['type'];
+        $isSecret = $type === 'password';
+
+        $value = $isSecret ? '' : $this->options->get($key);
+        $placeholder = '';
+        if ($isSecret && $this->options->get($key) !== '') {
+            $placeholder = __('Stored - leave blank to keep', 'uniti-support');
+        }
+
+        printf(
+            '<input type="%1$s" class="regular-text" name="%2$s[%3$s]" value="%4$s" placeholder="%5$s" autocomplete="off" />',
+            esc_attr($type),
+            esc_attr(Options::OPTION_NAME),
+            esc_attr($key),
+            esc_attr($value),
+            esc_attr($placeholder),
+        );
     }
 }

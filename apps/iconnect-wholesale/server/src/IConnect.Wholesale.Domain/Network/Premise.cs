@@ -62,13 +62,19 @@ public sealed class Premise
     public string SingleLineAddress =>
         string.Join(", ", new[] { AddressLine1, AddressLine2, Town, Postcode }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
-    public bool IsOrderable(DateOnly onDate) => BuildStatus switch
+    public bool IsOrderable(DateOnly onDate)
     {
-        PremiseBuildStatus.ReadyForService => true,
-        PremiseBuildStatus.PlannedBuild => ReadyForServiceDate is { } rfs && onDate >= rfs,
-        PremiseBuildStatus.SurveyRequired => true,
-        _ => false,
-    };
+        switch (BuildStatus)
+        {
+            case PremiseBuildStatus.ReadyForService:
+            case PremiseBuildStatus.SurveyRequired:
+                return true;
+            case PremiseBuildStatus.PlannedBuild:
+                return ReadyForServiceDate.HasValue && onDate >= ReadyForServiceDate.Value;
+            default:
+                return false;
+        }
+    }
 
     public void MarkServiceActive(bool active) => HasActiveService = active;
 }
@@ -97,7 +103,7 @@ public static partial class Postcodes
 {
     public static bool IsValid(string? value) => !string.IsNullOrWhiteSpace(value) && PostcodePattern().IsMatch(Compact(value));
 
-    /// <summary>Upper-cases and inserts the single space before the inward code ("sw1a1aa" → "SW1A 1AA").</summary>
+    /// <summary>Upper-cases and inserts the single space before the inward code ("sw1a1aa" -> "SW1A 1AA").</summary>
     public static string Normalise(string value)
     {
         if (!IsValid(value))
@@ -106,7 +112,8 @@ public static partial class Postcodes
         }
 
         var compact = Compact(value);
-        return compact[..^3] + " " + compact[^3..];
+        var outwardLength = compact.Length - 3;
+        return compact.Substring(0, outwardLength) + " " + compact.Substring(outwardLength);
     }
 
     private static string Compact(string value) => value.Replace(" ", string.Empty, StringComparison.Ordinal).ToUpperInvariant();

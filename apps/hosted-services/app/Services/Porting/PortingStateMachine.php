@@ -58,15 +58,29 @@ final class PortingStateMachine
             throw InvalidStateTransitionException::between('Porting request', $from->value, $to->value);
         }
 
-        match ($to) {
-            PortingStatus::Submitted => $this->guardSubmit($ctx),
-            PortingStatus::FocReceived => $this->guardFoc($ctx),
-            PortingStatus::Completed => $this->guardComplete($ctx),
-            PortingStatus::Rejected, PortingStatus::Failed => $this->guardReason($to, $ctx),
-            PortingStatus::Draft => $this->guardResubmit($ctx),
-            PortingStatus::Cancelled => $this->guardCancel($from, $ctx),
-            default => null,
-        };
+        switch ($to) {
+            case PortingStatus::Submitted:
+                $this->guardSubmit($ctx);
+                break;
+            case PortingStatus::FocReceived:
+                $this->guardFoc($ctx);
+                break;
+            case PortingStatus::Completed:
+                $this->guardComplete($ctx);
+                break;
+            case PortingStatus::Rejected:
+            case PortingStatus::Failed:
+                $this->guardReason($to, $ctx);
+                break;
+            case PortingStatus::Draft:
+                $this->guardResubmit($ctx);
+                break;
+            case PortingStatus::Cancelled:
+                $this->guardCancel($from, $ctx);
+                break;
+            default:
+                break;
+        }
     }
 
     /**
@@ -184,7 +198,7 @@ final class PortingStateMachine
                 sprintf(
                     'Ports cannot be cancelled within %d hours of the FOC date (%s).',
                     $this->cancelCutoffHours,
-                    $ctx->focAt?->toIso8601ZuluString(),
+                    $ctx->focAt->toIso8601ZuluString(),
                 ),
                 'PORT_CANCEL_CUTOFF',
                 ['cancelDeadline' => $deadline->toIso8601ZuluString()],

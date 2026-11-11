@@ -7,7 +7,7 @@ namespace App\Http\Requests\Mail;
 use App\Http\Requests\ApiFormRequest;
 
 /**
- * PUT /email-domains/{id}/storage — sets the absolute number of purchased
+ * PUT /email-domains/{id}/storage - sets the absolute number of purchased
  * add-on storage blocks (not a delta, so retries are idempotent).
  */
 final class AddonBlocksRequest extends ApiFormRequest

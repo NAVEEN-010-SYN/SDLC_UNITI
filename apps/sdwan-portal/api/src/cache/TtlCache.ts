@@ -71,7 +71,7 @@ export class TtlCache<V> {
     this.entries.delete(key);
   }
 
-  /** Removes every key starting with `prefix` — used to invalidate one account's inventory after a change. */
+  /** Removes every key starting with `prefix` - used to invalidate one account's inventory after a change. */
   invalidatePrefix(prefix: string): number {
     let n = 0;
     for (const key of [...this.entries.keys()]) {

@@ -42,7 +42,7 @@ export function normaliseDate(raw: string, reference: Date = new Date()): string
   if (iso) return raw;
   const numeric = /^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/.exec(raw);
   if (numeric) {
-    const year = numeric[3] ? (numeric[3].length === 2 ? 2000 + Number(numeric[3]) : Number(numeric[3])) : reference.getUTCFullYear();
+    const year = parseYear(numeric[3], reference);
     return toIso(year, Number(numeric[2]), Number(numeric[1]));
   }
   const named = /^(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]+)/i.exec(raw);
@@ -51,6 +51,13 @@ export function normaliseDate(raw: string, reference: Date = new Date()): string
     if (monthIndex >= 0) return toIso(reference.getUTCFullYear(), monthIndex + 1, Number(named[1]));
   }
   return raw;
+}
+
+/** Missing year -> reference year; two-digit year -> 20yy. */
+function parseYear(raw: string | undefined, reference: Date): number {
+  if (!raw) return reference.getUTCFullYear();
+  if (raw.length === 2) return 2000 + Number(raw);
+  return Number(raw);
 }
 
 function toIso(year: number, month: number, day: number): string {

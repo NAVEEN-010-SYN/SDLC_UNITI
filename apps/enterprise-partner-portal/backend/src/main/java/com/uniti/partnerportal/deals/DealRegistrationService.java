@@ -21,6 +21,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -77,14 +78,17 @@ public class DealRegistrationService {
 
         List<DealConflictDetector.Match> matches = findMatches(deal);
         rejectOwnDuplicates(partnerId, matches);
-        List<DealConflictDetector.Match> foreign = matches.stream()
-                .filter(m -> !m.existing().getPartnerId().equals(partnerId))
-                .toList();
+        int foreignCount = 0;
+        for (DealConflictDetector.Match m : matches) {
+            if (!m.existing().getPartnerId().equals(partnerId)) {
+                deal.addConflict(toConflict(m, now));
+                foreignCount++;
+            }
+        }
 
-        if (!foreign.isEmpty()) {
-            foreign.forEach(m -> deal.addConflict(toConflict(m, now)));
+        if (foreignCount > 0) {
             deal.transitionTo(DealStatus.UNDER_REVIEW);
-            log.info("deal_conflict_detected dealRef={} conflicts={}", deal.getReference(), foreign.size());
+            log.info("deal_conflict_detected dealRef={} conflicts={}", deal.getReference(), foreignCount);
         } else if (qualifiesForAutoApproval(partner, deal)) {
             deal.decide(DealStatus.APPROVED, "system", "Auto-approved: no conflicts", now);
             deal.setProtectedUntil(LocalDate.now(clock).plusDays(properties.deals().protectionDays()));
@@ -103,9 +107,21 @@ public class DealRegistrationService {
                 Instant.now(clock));
         apply(probe, request, properties.pricing().defaultCurrency());
         List<DealConflictDetector.Match> matches = findMatches(probe);
-        boolean own = matches.stream().anyMatch(m -> m.existing().getPartnerId().equals(partnerId));
-        boolean foreign = matches.stream().anyMatch(m -> !m.existing().getPartnerId().equals(partnerId));
-        List<String> reasons = matches.stream().flatMap(m -> m.reasons().stream()).map(Enum::name).distinct().toList();
+        boolean own = false;
+        boolean foreign = false;
+        List<String> reasons = new ArrayList<>();
+        for (DealConflictDetector.Match m : matches) {
+            if (m.existing().getPartnerId().equals(partnerId)) {
+                own = true;
+            } else {
+                foreign = true;
+            }
+            for (DealConflictDetector.Reason reason : m.reasons()) {
+                if (!reasons.contains(reason.name())) {
+                    reasons.add(reason.name());
+                }
+            }
+        }
         return new ConflictCheckResponse(foreign, own, reasons);
     }
 
@@ -128,17 +144,26 @@ public class DealRegistrationService {
         DealRegistration deal = load(dealId);
         Instant now = Instant.now(clock);
         LocalDate today = LocalDate.now(clock);
-        List<DealConflictDetector.Match> live = findMatches(deal).stream()
-                .filter(m -> !m.existing().getPartnerId().equals(deal.getPartnerId()))
-                .filter(m -> m.existing().isProtectedOn(today) || m.existing().getStatus() != DealStatus.APPROVED)
-                .toList();
-        boolean blocking = live.stream().anyMatch(m -> m.existing().isProtectedOn(today)
-                || m.existing().getSubmittedAt().isBefore(deal.getSubmittedAt()));
+        List<String> liveReferences = new ArrayList<>();
+        boolean blocking = false;
+        for (DealConflictDetector.Match m : findMatches(deal)) {
+            DealRegistration other = m.existing();
+            if (other.getPartnerId().equals(deal.getPartnerId())) {
+                continue;
+            }
+            boolean otherProtected = other.isProtectedOn(today);
+            if (!otherProtected && other.getStatus() == DealStatus.APPROVED) {
+                continue;
+            }
+            liveReferences.add(other.getReference());
+            if (otherProtected || other.getSubmittedAt().isBefore(deal.getSubmittedAt())) {
+                blocking = true;
+            }
+        }
         if (blocking && !overrideConflicts) {
             throw new PortalException.Conflict("deal.conflict_unresolved",
                     "An earlier or protected registration exists for this customer; reject this one or override")
-                    .withDetail("conflictingReferences",
-                            live.stream().map(m -> m.existing().getReference()).toList());
+                    .withDetail("conflictingReferences", liveReferences);
         }
         if (blocking) {
             log.warn("deal_conflict_overridden dealRef={} by={} reason={}", deal.getReference(),
@@ -241,14 +266,14 @@ public class DealRegistrationService {
     }
 
     private static void rejectOwnDuplicates(UUID partnerId, List<DealConflictDetector.Match> matches) {
-        matches.stream()
-                .filter(m -> m.existing().getPartnerId().equals(partnerId))
-                .findFirst()
-                .ifPresent(m -> {
-                    throw new PortalException.Conflict("deal.duplicate_registration",
-                            "You already have an open registration for this customer: " + m.existing().getReference())
-                            .withDetail("existingReference", m.existing().getReference());
-                });
+        for (DealConflictDetector.Match m : matches) {
+            if (m.existing().getPartnerId().equals(partnerId)) {
+                String ref = m.existing().getReference();
+                throw new PortalException.Conflict("deal.duplicate_registration",
+                        "You already have an open registration for this customer: " + ref)
+                        .withDetail("existingReference", ref);
+            }
+        }
     }
 
     private static boolean qualifiesForAutoApproval(Partner partner, DealRegistration deal) {

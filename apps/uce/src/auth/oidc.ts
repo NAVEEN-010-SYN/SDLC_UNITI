@@ -68,9 +68,25 @@ export async function pkceChallenge(verifier: string): Promise<string> {
 export function decodeJwt(token: string): Record<string, unknown> {
   const part = token.split('.')[1];
   if (!part) throw new Error('Malformed JWT');
-  const json = atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='));
+  // base64url -> base64, re-padded to a multiple of 4.
+  const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(Math.ceil(part.length / 4) * 4, '=');
+  const json = atob(padded);
   const bytes = Uint8Array.from(json, (c) => c.charCodeAt(0));
   return JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+}
+
+/** Reads the optional `accounts` claim, keeping only entries with a valid account id. */
+function accountsFromClaim(raw: unknown): AccountRef[] {
+  const accounts: AccountRef[] = [];
+  if (!Array.isArray(raw)) return accounts;
+  for (const item of raw as Array<Record<string, unknown>>) {
+    const id = item?.id;
+    if (typeof id !== 'string' || !ACCOUNT_ID.test(id)) continue;
+    const name = typeof item.name === 'string' ? item.name : id;
+    accounts.push({ accountId: id, name });
+  }
+  return accounts;
 }
 
 /**
@@ -82,11 +98,7 @@ export function userFromClaims(claims: Record<string, unknown>): SessionUser {
   const defaultAccountId = typeof claims.account_id === 'string' ? claims.account_id : undefined;
   if (!userId || !defaultAccountId || !ACCOUNT_ID.test(defaultAccountId)) throw new Error('Token is missing sub or a valid account_id');
 
-  const accounts: AccountRef[] = Array.isArray(claims.accounts)
-    ? (claims.accounts as Array<Record<string, unknown>>)
-        .filter((a) => typeof a?.id === 'string' && ACCOUNT_ID.test(a.id as string))
-        .map((a) => ({ accountId: a.id as string, name: typeof a.name === 'string' ? a.name : (a.id as string) }))
-    : [];
+  const accounts = accountsFromClaim(claims.accounts);
   if (!accounts.some((a) => a.accountId === defaultAccountId)) accounts.unshift({ accountId: defaultAccountId, name: defaultAccountId });
 
   return {

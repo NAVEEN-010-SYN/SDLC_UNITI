@@ -106,14 +106,18 @@ export function validateFlow(flow: FlowDefinition): void {
   const names = new Set(Object.keys(flow.states));
   if (!names.has(flow.initial)) throw new FlowDefinitionError(`${flow.id}: initial state "${flow.initial}" is undefined`);
   for (const [name, state] of Object.entries(flow.states)) {
-    const targets: unknown[] =
-      state.kind === 'slot' ? [state.next] : state.kind === 'confirm' ? [state.onYes, state.onNo] : [];
-    for (const target of targets) {
+    for (const target of transitionTargets(state)) {
       if (typeof target === 'string' && target !== END && !names.has(target)) {
         throw new FlowDefinitionError(`${flow.id}.${name}: transition to unknown state "${target}"`);
       }
     }
   }
+}
+
+function transitionTargets(state: StateDefinition): unknown[] {
+  if (state.kind === 'slot') return [state.next];
+  if (state.kind === 'confirm') return [state.onYes, state.onNo];
+  return [];
 }
 
 export function startFlow(flow: FlowDefinition, prefill: SlotValues = {}, now = new Date()): FlowState {
@@ -135,6 +139,90 @@ export function prefillFromEntities(flow: FlowDefinition, entities: Entity[]): S
   return { ...(flow.prefill?.(entities) ?? {}), ...values };
 }
 
+/** Mutable per-turn state shared by the step helpers below. */
+interface TurnState {
+  ctx: FlowContext;
+  current: FlowState;
+  replies: BotReply[];
+  handoff?: ActionResult['handoff'];
+  outcome?: string;
+  pendingInput?: { text: string; entities: Entity[] };
+}
+
+/** Ends the turn while keeping the flow active (waiting for input). */
+function waitForInput(turn: TurnState): StepOutcome {
+  return { flow: turn.current, replies: turn.replies, handoff: turn.handoff, outcome: turn.outcome };
+}
+
+/** Ends the turn and drops the flow because retries ran out. */
+function abandon(turn: TurnState, text: string): StepOutcome {
+  turn.replies.push({ text });
+  return { flow: undefined, replies: turn.replies, handoff: turn.handoff, outcome: 'abandoned', abandoned: true };
+}
+
+async function runAction(turn: TurnState, def: ActionState): Promise<void> {
+  const result = await def.run(turn.ctx);
+  turn.replies.push(...(result.replies ?? []));
+  turn.handoff = result.handoff ?? turn.handoff;
+  turn.outcome = result.outcome ?? turn.outcome;
+  transition(turn.current, result.next);
+}
+
+/** Returns a StepOutcome when the turn ends, or undefined to keep advancing. */
+async function runSlot(turn: TurnState, def: SlotState): Promise<StepOutcome | undefined> {
+  const { current, ctx } = turn;
+  if (current.slots[def.slot] === undefined && def.autofill) {
+    const auto = await def.autofill(ctx);
+    if (auto !== undefined) current.slots[def.slot] = auto;
+  }
+  if (current.slots[def.slot] !== undefined) {
+    transition(current, resolve(def.next, ctx));
+    return undefined;
+  }
+  const input = turn.pendingInput;
+  if (!input) {
+    turn.replies.push(resolve(def.prompt, ctx));
+    return waitForInput(turn);
+  }
+  const validator = typeof def.validator === 'function' ? def.validator(ctx) : def.validator;
+  const parsed = validator.parse(input.text, input.entities);
+  turn.pendingInput = undefined;
+  if (parsed.ok) {
+    current.slots[def.slot] = parsed.value;
+    transition(current, resolve(def.next, ctx));
+    return undefined;
+  }
+  current.retries += 1;
+  if (current.retries >= (def.maxRetries ?? DEFAULT_SLOT_RETRIES)) {
+    return abandon(turn, "Sorry, I'm having trouble with that. Let's leave this here for now.");
+  }
+  turn.replies.push({ text: parsed.error });
+  return waitForInput(turn);
+}
+
+/** Returns a StepOutcome when the turn ends, or undefined to keep advancing. */
+function runConfirm(turn: TurnState, def: ConfirmState): StepOutcome | undefined {
+  const { current, ctx } = turn;
+  const input = turn.pendingInput;
+  if (!input) {
+    turn.replies.push(resolve(def.prompt, ctx));
+    return waitForInput(turn);
+  }
+  const answer = interpretYesNo(input.text);
+  turn.pendingInput = undefined;
+  if (answer === undefined) {
+    current.retries += 1;
+    if (current.retries >= DEFAULT_SLOT_RETRIES) {
+      return abandon(turn, "I didn't catch that, so I've stopped here. Ask again any time.");
+    }
+    const prompt = resolve(def.prompt, ctx);
+    turn.replies.push({ ...prompt, text: `Please answer yes or no. ${prompt.text}` });
+    return waitForInput(turn);
+  }
+  transition(current, resolve(answer ? def.onYes : def.onNo, ctx));
+  return undefined;
+}
+
 /**
  * Advances the flow. If `input` is provided it is consumed by the current
  * waiting state (slot or confirm). The machine then runs forward through
@@ -148,73 +236,24 @@ export async function stepFlow(
 ): Promise<StepOutcome> {
   const current: FlowState = { ...state, slots: { ...state.slots } };
   ctx.slots = current.slots;
-  const replies: BotReply[] = [];
-  let handoff: ActionResult['handoff'];
-  let outcome: string | undefined;
-  let pendingInput = input;
+  const turn: TurnState = { ctx, current, replies: [], pendingInput: input };
 
   for (let i = 0; i < MAX_TRANSITIONS_PER_TURN; i += 1) {
-    if (current.state === END) return { flow: undefined, replies, handoff, outcome };
+    if (current.state === END) {
+      return { flow: undefined, replies: turn.replies, handoff: turn.handoff, outcome: turn.outcome };
+    }
     const def = flow.states[current.state];
     if (!def) throw new FlowDefinitionError(`${flow.id}: unknown state "${current.state}"`);
 
+    let ended: StepOutcome | undefined;
     if (def.kind === 'action') {
-      const result = await def.run(ctx);
-      replies.push(...(result.replies ?? []));
-      handoff = result.handoff ?? handoff;
-      outcome = result.outcome ?? outcome;
-      transition(current, result.next);
-      continue;
+      await runAction(turn, def);
+    } else if (def.kind === 'slot') {
+      ended = await runSlot(turn, def);
+    } else {
+      ended = runConfirm(turn, def);
     }
-
-    if (def.kind === 'slot') {
-      if (current.slots[def.slot] === undefined && def.autofill) {
-        const auto = await def.autofill(ctx);
-        if (auto !== undefined) current.slots[def.slot] = auto;
-      }
-      if (current.slots[def.slot] !== undefined) {
-        transition(current, resolve(def.next, ctx));
-        continue;
-      }
-      if (!pendingInput) {
-        replies.push(resolve(def.prompt, ctx));
-        return { flow: current, replies, handoff, outcome };
-      }
-      const validator = typeof def.validator === 'function' ? def.validator(ctx) : def.validator;
-      const parsed = validator.parse(pendingInput.text, pendingInput.entities);
-      pendingInput = undefined;
-      if (parsed.ok) {
-        current.slots[def.slot] = parsed.value;
-        transition(current, resolve(def.next, ctx));
-        continue;
-      }
-      current.retries += 1;
-      if (current.retries >= (def.maxRetries ?? DEFAULT_SLOT_RETRIES)) {
-        replies.push({ text: "Sorry, I'm having trouble with that. Let's leave this here for now." });
-        return { flow: undefined, replies, handoff, outcome: 'abandoned', abandoned: true };
-      }
-      replies.push({ text: parsed.error });
-      return { flow: current, replies, handoff, outcome };
-    }
-
-    // confirm
-    if (!pendingInput) {
-      replies.push(resolve(def.prompt, ctx));
-      return { flow: current, replies, handoff, outcome };
-    }
-    const answer = interpretYesNo(pendingInput.text);
-    pendingInput = undefined;
-    if (answer === undefined) {
-      current.retries += 1;
-      if (current.retries >= DEFAULT_SLOT_RETRIES) {
-        replies.push({ text: "I didn't catch that, so I've stopped here. Ask again any time." });
-        return { flow: undefined, replies, handoff, outcome: 'abandoned', abandoned: true };
-      }
-      const prompt = resolve(def.prompt, ctx);
-      replies.push({ ...prompt, text: `Please answer yes or no. ${prompt.text}` });
-      return { flow: current, replies, handoff, outcome };
-    }
-    transition(current, resolve(answer ? def.onYes : def.onNo, ctx));
+    if (ended) return ended;
   }
   throw new FlowDefinitionError(`${flow.id}: exceeded ${MAX_TRANSITIONS_PER_TURN} transitions in one turn (cycle?)`);
 }

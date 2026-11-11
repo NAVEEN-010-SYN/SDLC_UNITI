@@ -44,7 +44,7 @@ public actor TTLCache<Key: Hashable & Sendable, Value: Sendable> {
         return entry.value
     }
 
-    /// Returns the cached value even if expired — for offline fallback.
+    /// Returns the cached value even if expired - for offline fallback.
     public func staleValue(for key: Key) -> Value? {
         entries[key]?.value
     }

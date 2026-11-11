@@ -49,27 +49,35 @@ final class StatusBanner
 
         $items = '';
         foreach (array_slice($incidents, 0, $limit) as $incident) {
-            $label = $incident['planned'] ? __('Planned maintenance', 'uniti-support') : __('Service issue', 'uniti-support');
-            $when = wp_date(get_option('date_format') . ' ' . get_option('time_format'), $incident['startsAt']->getTimestamp());
-            $link = $incident['url'] === null ? '' : sprintf(
-                ' <a href="%s">%s</a>',
-                esc_url($incident['url']),
-                esc_html__('Details', 'uniti-support'),
-            );
-
-            $items .= sprintf(
-                '<li class="uniti-status__item uniti-status__item--%1$s"><strong>%2$s:</strong> %3$s <time datetime="%4$s">%5$s</time>%6$s</li>',
-                esc_attr($incident['severity']),
-                esc_html($label),
-                esc_html($incident['title']),
-                esc_attr($incident['startsAt']->format('Y-m-d\TH:i:s\Z')),
-                esc_html((string) $when),
-                $link,
-            );
+            $items .= $this->renderItem($incident);
         }
 
         $role = $incidents[0]['severity'] === 'critical' ? 'alert' : 'status';
 
         return sprintf('<div class="uniti-status" role="%s"><ul class="uniti-status__list">%s</ul></div>', esc_attr($role), $items);
+    }
+
+    /**
+     * @param array{severity: string, title: string, startsAt: DateTimeImmutable, url: ?string, planned: bool} $incident
+     */
+    private function renderItem(array $incident): string
+    {
+        $label = $incident['planned'] ? __('Planned maintenance', 'uniti-support') : __('Service issue', 'uniti-support');
+        $when = wp_date(get_option('date_format') . ' ' . get_option('time_format'), $incident['startsAt']->getTimestamp());
+
+        $link = '';
+        if ($incident['url'] !== null) {
+            $link = sprintf(' <a href="%s">%s</a>', esc_url($incident['url']), esc_html__('Details', 'uniti-support'));
+        }
+
+        return sprintf(
+            '<li class="uniti-status__item uniti-status__item--%1$s"><strong>%2$s:</strong> %3$s <time datetime="%4$s">%5$s</time>%6$s</li>',
+            esc_attr($incident['severity']),
+            esc_html($label),
+            esc_html($incident['title']),
+            esc_attr($incident['startsAt']->format('Y-m-d\TH:i:s\Z')),
+            esc_html((string) $when),
+            $link,
+        );
     }
 }

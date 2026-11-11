@@ -73,8 +73,11 @@ abstract class Controller
 
         $value = is_string($raw) ? $enum::tryFrom(strtoupper($raw)) : null;
         if ($value === null) {
-            $allowed = implode(', ', array_map(static fn (BackedEnum $c) => (string) $c->value, $enum::cases()));
-            throw ValidationFailedException::forField($name, sprintf('Must be one of: %s.', $allowed));
+            $allowed = [];
+            foreach ($enum::cases() as $case) {
+                $allowed[] = (string) $case->value;
+            }
+            throw ValidationFailedException::forField($name, sprintf('Must be one of: %s.', implode(', ', $allowed)));
         }
 
         return $value;

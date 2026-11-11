@@ -74,7 +74,7 @@ export function round(n: number, dp = 2): number {
 /**
  * Drops samples that are physically impossible or obviously sentinel values that both
  * vendors emit when a probe fails (VeloCloud reports -1, FortiGate occasionally reports
- * latency 0 with loss 100 for a dead probe – which is valid and kept).
+ * latency 0 with loss 100 for a dead probe - which is valid and kept).
  */
 export function sanitizeSamples(samples: LinkSample[]): LinkSample[] {
   return samples.filter(

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Http\Resources;
 
 use App\Models\HuntGroup;
-use App\Models\HuntGroupMember;
 use App\Services\Voice\HuntGroupService;
 use Illuminate\Http\Request;
 
@@ -22,6 +21,17 @@ final class HuntGroupResource extends ApiResource
         $group = $this->resource;
         $members = $group->members->sortBy('position')->values();
 
+        $memberRows = [];
+        $ringTimes = [];
+        foreach ($members as $m) {
+            $memberRows[] = [
+                'extensionId' => $m->extension_id,
+                'position' => $m->position,
+                'ringSeconds' => $m->ring_seconds,
+            ];
+            $ringTimes[] = $m->ring_seconds ?? $group->ring_seconds;
+        }
+
         return [
             'id' => $group->id,
             'name' => $group->name,
@@ -30,16 +40,8 @@ final class HuntGroupResource extends ApiResource
             'strategy' => $group->strategy->value,
             'ordered' => $group->strategy->isOrdered(),
             'ringSeconds' => $group->ring_seconds,
-            'members' => $members->map(static fn (HuntGroupMember $m) => [
-                'extensionId' => $m->extension_id,
-                'position' => $m->position,
-                'ringSeconds' => $m->ring_seconds,
-            ])->all(),
-            'maxWaitSeconds' => HuntGroupService::maxWaitSeconds(
-                $group->strategy,
-                $group->ring_seconds,
-                $members->map(static fn (HuntGroupMember $m) => $m->ring_seconds ?? $group->ring_seconds)->all(),
-            ),
+            'members' => $memberRows,
+            'maxWaitSeconds' => HuntGroupService::maxWaitSeconds($group->strategy, $group->ring_seconds, $ringTimes),
             'noAnswer' => [
                 'type' => $group->no_answer_type,
                 'destination' => $group->no_answer_destination,

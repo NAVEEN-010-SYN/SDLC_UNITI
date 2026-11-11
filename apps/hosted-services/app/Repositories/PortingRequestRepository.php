@@ -70,7 +70,14 @@ class PortingRequestRepository extends AccountScopedRepository
             }
         }
 
-        return array_values(array_filter($numbers, static fn (string $n) => isset($inFlight[$n])));
+        $result = [];
+        foreach ($numbers as $number) {
+            if (isset($inFlight[$number])) {
+                $result[] = $number;
+            }
+        }
+
+        return $result;
     }
 
     /**

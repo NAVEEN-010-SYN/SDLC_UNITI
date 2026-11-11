@@ -50,25 +50,44 @@ export function decodeJwt(token: string): Record<string, unknown> {
   if (!part) {
     throw new Error('Malformed token');
   }
-  const json = atob(part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '='));
+  const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+  const paddedLength = Math.ceil(part.length / 4) * 4;
+  const json = atob(base64.padEnd(paddedLength, '='));
   return JSON.parse(decodeURIComponent(escape(json))) as Record<string, unknown>;
 }
 
 /** Mirrors the API's role extraction: a JSON array or a space/comma separated string, upper-cased. */
 export function extractRoles(claims: Record<string, unknown>, claim: string): string[] {
   const raw = claims[claim];
-  const values = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(/[ ,]/) : [];
-  return [...new Set(values.map((v) => v.trim().toUpperCase()).filter(Boolean))];
+  let values: string[] = [];
+  if (Array.isArray(raw)) {
+    values = raw.map(String);
+  } else if (typeof raw === 'string') {
+    values = raw.split(/[ ,]/);
+  }
+  const roles: string[] = [];
+  for (const v of values) {
+    const role = v.trim().toUpperCase();
+    if (role && !roles.includes(role)) {
+      roles.push(role);
+    }
+  }
+  return roles;
 }
 
 export function userFromToken(accessToken: string, rolesClaim: string, partnerClaim: string): SessionUser {
   const claims = decodeJwt(accessToken);
   const email = typeof claims.email === 'string' ? claims.email : undefined;
+  let name = email ?? 'Unknown user';
+  if (typeof claims.name === 'string') {
+    name = claims.name;
+  }
+  const partnerValue = claims[partnerClaim];
   return {
     subject: String(claims.sub ?? ''),
-    name: typeof claims.name === 'string' ? claims.name : email ?? 'Unknown user',
+    name,
     email,
-    partnerId: typeof claims[partnerClaim] === 'string' ? (claims[partnerClaim] as string) : undefined,
+    partnerId: typeof partnerValue === 'string' ? partnerValue : undefined,
     roles: extractRoles(claims, rolesClaim),
   };
 }

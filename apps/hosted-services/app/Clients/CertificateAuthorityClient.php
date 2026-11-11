@@ -71,15 +71,22 @@ class CertificateAuthorityClient
      */
     private function mapOrder(array $order): array
     {
-        $date = static fn (mixed $v) => is_string($v) && $v !== '' ? CarbonImmutable::parse($v) : null;
-
         return [
             'status' => strtolower((string) ($order['status'] ?? 'pending')),
             'serialNumber' => isset($order['serialNumber']) ? (string) $order['serialNumber'] : null,
             'issuer' => isset($order['issuer']) ? (string) $order['issuer'] : null,
-            'notBefore' => $date($order['notBefore'] ?? null),
-            'notAfter' => $date($order['notAfter'] ?? null),
+            'notBefore' => $this->parseDate($order['notBefore'] ?? null),
+            'notAfter' => $this->parseDate($order['notAfter'] ?? null),
             'error' => isset($order['error']) ? (string) $order['error'] : null,
         ];
+    }
+
+    private function parseDate(mixed $value): ?CarbonImmutable
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        return CarbonImmutable::parse($value);
     }
 }

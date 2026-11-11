@@ -39,7 +39,7 @@ function SessionGate({ children }: { children: ReactNode }) {
     );
   }
   if (status !== 'authenticated') {
-    return <p className="loading">Signing you in…</p>;
+    return <p className="loading">Signing you in&hellip;</p>;
   }
   return <>{children}</>;
 }

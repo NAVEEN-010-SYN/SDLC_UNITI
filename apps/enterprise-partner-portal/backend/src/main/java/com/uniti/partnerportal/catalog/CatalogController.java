@@ -11,7 +11,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Comparator;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,13 +45,35 @@ public class CatalogController {
     @PreAuthorize(Roles.HAS_PARTNER_ROLE)
     @Operation(summary = "List active products")
     public List<ProductResponse> list(@RequestParam(required = false) CatalogProduct.Category category) {
-        return products.findByActiveTrue().stream()
-                .filter(p -> category == null || p.getCategory() == category)
-                .sorted(Comparator.comparing(CatalogProduct::getCategory)
-                        .thenComparing(p -> p.getBandwidthMbps() == null ? 0 : p.getBandwidthMbps())
-                        .thenComparing(CatalogProduct::getSku))
-                .map(ProductResponse::from)
-                .toList();
+        List<CatalogProduct> matching = new ArrayList<>();
+        for (CatalogProduct p : products.findByActiveTrue()) {
+            if (category == null || p.getCategory() == category) {
+                matching.add(p);
+            }
+        }
+        matching.sort(CatalogController::compareProducts);
+        List<ProductResponse> result = new ArrayList<>();
+        for (CatalogProduct p : matching) {
+            result.add(ProductResponse.from(p));
+        }
+        return result;
+    }
+
+    /** Orders by category, then bandwidth (missing counts as 0), then SKU. */
+    private static int compareProducts(CatalogProduct a, CatalogProduct b) {
+        int byCategory = a.getCategory().compareTo(b.getCategory());
+        if (byCategory != 0) {
+            return byCategory;
+        }
+        int byBandwidth = Integer.compare(bandwidthOrZero(a), bandwidthOrZero(b));
+        if (byBandwidth != 0) {
+            return byBandwidth;
+        }
+        return a.getSku().compareTo(b.getSku());
+    }
+
+    private static int bandwidthOrZero(CatalogProduct p) {
+        return p.getBandwidthMbps() == null ? 0 : p.getBandwidthMbps();
     }
 
     @GetMapping("/products/{sku}")

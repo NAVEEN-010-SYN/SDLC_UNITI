@@ -49,7 +49,11 @@ export function PlansPage() {
   });
 
   const toggleCompare = (sku) =>
-    setCompare((list) => (list.includes(sku) ? list.filter((s) => s !== sku) : list.length < MAX_COMPARE ? [...list, sku] : list));
+    setCompare((list) => {
+      if (list.includes(sku)) return list.filter((s) => s !== sku);
+      if (list.length < MAX_COMPARE) return [...list, sku];
+      return list;
+    });
 
   const availabilityOf = (plan) => {
     if (!availability.check) return 'unknown';

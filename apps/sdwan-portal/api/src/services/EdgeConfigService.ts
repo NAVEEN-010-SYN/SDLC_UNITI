@@ -32,7 +32,7 @@ export interface FirewallPreview {
 
 /**
  * Read side of business policies and firewall rules, plus dry-run validation the UI calls
- * while a user is editing — the same checks a change request runs at creation time, so a
+ * while a user is editing - the same checks a change request runs at creation time, so a
  * draft that previews clean will not be rejected on submit.
  */
 export class EdgeConfigService {

@@ -41,14 +41,7 @@ public class LeadScorer {
             score += 5;
         }
 
-        score += switch (lead.getSource() == null ? Lead.Source.OTHER : lead.getSource()) {
-            case UNITI_SHARED -> 12;
-            case REFERRAL -> 10;
-            case EVENT -> 6;
-            case WEBSITE -> 5;
-            case OUTBOUND -> 3;
-            case OTHER -> 0;
-        };
+        score += sourcePoints(lead.getSource());
 
         String interest = lead.getProductInterest() == null ? "" : lead.getProductInterest().toLowerCase(Locale.ROOT);
         if (interest.contains("sd-wan") || interest.contains("sdwan")) {
@@ -57,6 +50,26 @@ public class LeadScorer {
             score += 5;
         }
         return Math.min(score, 100);
+    }
+
+    private static int sourcePoints(Lead.Source source) {
+        if (source == null) {
+            return 0;
+        }
+        switch (source) {
+            case UNITI_SHARED:
+                return 12;
+            case REFERRAL:
+                return 10;
+            case EVENT:
+                return 6;
+            case WEBSITE:
+                return 5;
+            case OUTBOUND:
+                return 3;
+            default:
+                return 0;
+        }
     }
 
     public String band(int score) {

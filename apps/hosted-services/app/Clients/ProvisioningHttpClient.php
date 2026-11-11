@@ -55,28 +55,7 @@ class ProvisioningHttpClient
         $method = strtoupper($method);
         $url = rtrim($this->baseUrl, '/') . '/' . ltrim($path, '/');
         $canRetry = in_array($method, self::IDEMPOTENT_METHODS, true) || $idempotencyKey !== null;
-
-        $headers = [
-            'Accept' => 'application/json',
-            'X-Api-Key' => $this->apiKey,
-            CorrelationId::HEADER => CorrelationId::current(),
-        ];
-        if ($idempotencyKey !== null) {
-            $headers['Idempotency-Key'] = $idempotencyKey;
-        }
-
-        $options = [
-            'headers' => $headers,
-            'timeout' => $this->timeoutSeconds,
-            'connect_timeout' => min(3.0, $this->timeoutSeconds),
-            'http_errors' => false,
-        ];
-        if ($body !== null) {
-            $options['json'] = $body;
-        }
-        if ($query !== []) {
-            $options['query'] = $query;
-        }
+        $options = $this->buildOptions($body, $query, $idempotencyKey);
 
         $attempt = 0;
         while (true) {
@@ -112,6 +91,38 @@ class ProvisioningHttpClient
 
             return $this->decode($response, $method, $path);
         }
+    }
+
+    /**
+     * @param array<string, mixed>|null $body
+     * @param array<string, scalar>     $query
+     * @return array<string, mixed>
+     */
+    private function buildOptions(?array $body, array $query, ?string $idempotencyKey): array
+    {
+        $headers = [
+            'Accept' => 'application/json',
+            'X-Api-Key' => $this->apiKey,
+            CorrelationId::HEADER => CorrelationId::current(),
+        ];
+        if ($idempotencyKey !== null) {
+            $headers['Idempotency-Key'] = $idempotencyKey;
+        }
+
+        $options = [
+            'headers' => $headers,
+            'timeout' => $this->timeoutSeconds,
+            'connect_timeout' => min(3.0, $this->timeoutSeconds),
+            'http_errors' => false,
+        ];
+        if ($body !== null) {
+            $options['json'] = $body;
+        }
+        if ($query !== []) {
+            $options['query'] = $query;
+        }
+
+        return $options;
     }
 
     /**
@@ -166,7 +177,10 @@ class ProvisioningHttpClient
         }
 
         if ($status >= 400) {
-            $reason = is_array($decoded) ? (string) ($decoded['message'] ?? $decoded['detail'] ?? $decoded['error'] ?? 'error') : 'error';
+            $reason = 'error';
+            if (is_array($decoded)) {
+                $reason = (string) ($decoded['message'] ?? $decoded['detail'] ?? $decoded['error'] ?? 'error');
+            }
             throw ProvisioningException::fromPlatform($this->platform, "$method $path", $status, $reason);
         }
 

@@ -55,15 +55,20 @@ export class MaintenanceWindowService {
     await this.repo.delete(id);
   }
 
-  /** Every opening of every account window in the next `days`, chronologically — drives the scheduling picker. */
+  /** Every opening of every account window in the next `days`, chronologically - drives the scheduling picker. */
   async upcoming(accountId: string, days: number): Promise<Array<WindowOccurrence & { name: string }>> {
     const from = this.now();
     const to = new Date(from.getTime() + days * 86_400_000);
+    const fromIso = from.toISOString();
+    const toIso = to.toISOString();
     const windows = await this.repo.find((w) => w.accountId === accountId);
-    return windows
-      .flatMap((w) => occurrencesBetween(w, from.toISOString(), to.toISOString()).map((o) => ({ ...o, name: w.name })))
-      .filter((o) => o.end > from.toISOString())
-      .sort((a, b) => a.start.localeCompare(b.start));
+    const result: Array<WindowOccurrence & { name: string }> = [];
+    for (const w of windows) {
+      for (const o of occurrencesBetween(w, fromIso, toIso)) {
+        if (o.end > fromIso) result.push({ ...o, name: w.name });
+      }
+    }
+    return result.sort((a, b) => a.start.localeCompare(b.start));
   }
 
   /** Changing a window under a scheduled change would silently move it outside its approved slot. */

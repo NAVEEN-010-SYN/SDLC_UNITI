@@ -5,7 +5,7 @@ namespace Uconnect.Domain.Billing;
 /// <summary>
 /// A monthly bill. Built as a <see cref="InvoiceStatus.Draft"/>, totals are recalculated on every
 /// line change, and once issued the lines are frozen. Payments move it through
-/// <c>Issued → PartiallyPaid → Paid</c>; an unpaid invoice past its due date becomes <c>Overdue</c>.
+/// <c>Issued -> PartiallyPaid -> Paid</c>; an unpaid invoice past its due date becomes <c>Overdue</c>.
 /// An invoice whose total is negative (credits exceed charges) is settled on issue and the surplus is
 /// carried forward as a credit to the next invoice.
 /// </summary>

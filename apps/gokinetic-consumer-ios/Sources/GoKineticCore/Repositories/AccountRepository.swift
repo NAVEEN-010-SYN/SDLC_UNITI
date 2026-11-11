@@ -93,11 +93,16 @@ public enum ContactValidator {
     public static func normalizePhone(_ raw: String) -> String? {
         let hasPlus = raw.trimmingCharacters(in: .whitespaces).hasPrefix("+")
         let digits = raw.filter(\.isNumber)
-        switch (hasPlus, digits.count) {
-        case (false, 10): return "+1" + digits
-        case (false, 11) where digits.hasPrefix("1"): return "+" + digits
-        case (true, 8...15): return "+" + digits
-        default: return nil
+        let count = digits.count
+        if hasPlus {
+            return (8...15).contains(count) ? "+" + digits : nil
         }
+        if count == 10 {
+            return "+1" + digits
+        }
+        if count == 11 && digits.hasPrefix("1") {
+            return "+" + digits
+        }
+        return nil
     }
 }

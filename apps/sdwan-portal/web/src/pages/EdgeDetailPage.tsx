@@ -11,19 +11,26 @@ import { EDGE_STATUS_LABEL, formatDateTime, formatKbps, formatMs, formatPct, LIN
 /** Realtime-class SLA (api/src/domain/linkScoring.ts DEFAULT_SLA.REALTIME), drawn on every chart. */
 const SLA = { latencyMs: 150, jitterMs: 30, lossPct: 1 };
 
+/** Maps a link quality grade to a status pill tone. */
+function gradeStatus(grade: string): string {
+  if (grade === 'GOOD') return 'UP';
+  if (grade === 'FAIR') return 'DEGRADED';
+  return 'DOWN';
+}
+
 function LinkPanel({ lh, bucketSeconds }: { lh: LinkHealth; bucketSeconds: number }) {
   const series = (f: (b: LinkHealth['series'][number]) => number) => lh.series.map((b) => ({ t: b.start, v: f(b) }));
   return (
     <article className="link-panel">
       <h3>
-        {lh.link.name} · {lh.link.transport.toLowerCase()} {lh.link.ispName && `(${lh.link.ispName})`}{' '}
+        {lh.link.name} &middot; {lh.link.transport.toLowerCase()} {lh.link.ispName && `(${lh.link.ispName})`}{' '}
         <StatusPill value={lh.link.state} label={LINK_STATE_LABEL[lh.link.state]} />
       </h3>
       {lh.score ? (
         <dl className="stats">
           <dt>Quality</dt>
           <dd>
-            <StatusPill value={lh.score.grade === 'GOOD' ? 'UP' : lh.score.grade === 'FAIR' ? 'DEGRADED' : 'DOWN'} label={`${lh.score.grade.toLowerCase()} · MOS ${lh.score.mos}`} />
+            <StatusPill value={gradeStatus(lh.score.grade)} label={`${lh.score.grade.toLowerCase()} \u00B7 MOS ${lh.score.mos}`} />
           </dd>
           <dt>SLA compliance</dt>
           <dd>{formatPct(lh.score.slaCompliancePct)}</dd>
@@ -62,7 +69,7 @@ export function EdgeDetailPage() {
 
   if (edge.error) return <ProblemBanner error={edge.error} onRetry={edge.reload} />;
   const e = edge.data;
-  if (!e) return <p aria-busy="true">Loading edge…</p>;
+  if (!e) return <p aria-busy="true">Loading edge&hellip;</p>;
 
   return (
     <section>
@@ -70,7 +77,7 @@ export function EdgeDetailPage() {
         {e.name} <StatusPill value={e.status} label={EDGE_STATUS_LABEL[e.status]} />
       </h1>
       <p className="meta">
-        {e.vendor === 'FORTINET' ? 'Fortinet' : 'VeloCloud'} {e.model} · serial {e.serialNumber} · software {e.softwareVersion} · HA {e.haState.toLowerCase()} · last contact{' '}
+        {e.vendor === 'FORTINET' ? 'Fortinet' : 'VeloCloud'} {e.model} &middot; serial {e.serialNumber} &middot; software {e.softwareVersion} &middot; HA {e.haState.toLowerCase()} &middot; last contact{' '}
         {formatDateTime(e.lastContact)}
       </p>
       <RequireRole roles={['BUSINESS_ADMIN', 'BUSINESS_USER', 'SUPPORT_AGENT']}>
@@ -109,11 +116,11 @@ export function EdgeDetailPage() {
                 <StatusPill value={l.state} label={LINK_STATE_LABEL[l.state]} />
               </td>
               <td>{l.transport.toLowerCase()}</td>
-              <td>{l.ispName ?? '—'}</td>
+              <td>{l.ispName ?? '\u2014'}</td>
               <td>
                 {formatKbps(l.bandwidthDownKbps)} / {formatKbps(l.bandwidthUpKbps)}
               </td>
-              <td>{l.publicIp ?? '—'}</td>
+              <td>{l.publicIp ?? '\u2014'}</td>
             </tr>
           ))}
         </tbody>

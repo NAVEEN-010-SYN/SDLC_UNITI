@@ -25,107 +25,148 @@ public static class CsvReader
     public static IReadOnlyList<CsvRecord> Parse(string content)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (content.Length > 0 && content[0] == '﻿')
+        if (content.Length > 0 && content[0] == '\uFEFF')
         {
             content = content[1..];
         }
 
-        var records = new List<CsvRecord>();
-        var fields = new List<string>();
-        var field = new StringBuilder();
-        var inQuotes = false;
-        var fieldWasQuoted = false;
-        var line = 1;
-        var recordStartLine = 1;
+        var parser = new Parser(content);
+        return parser.Run();
+    }
 
-        for (var i = 0; i < content.Length; i++)
+    /// <summary>Character-by-character state machine; one instance per Parse call.</summary>
+    private sealed class Parser
+    {
+        private readonly string _content;
+        private readonly List<CsvRecord> _records = new();
+        private readonly StringBuilder _field = new();
+        private List<string> _fields = new();
+        private bool _inQuotes;
+        private bool _fieldWasQuoted;
+        private int _line = 1;
+        private int _recordStartLine = 1;
+
+        public Parser(string content)
         {
-            var c = content[i];
+            _content = content;
+        }
 
-            if (inQuotes)
+        public List<CsvRecord> Run()
+        {
+            for (var i = 0; i < _content.Length; i++)
             {
-                if (c == '"')
+                if (_inQuotes)
                 {
-                    if (i + 1 < content.Length && content[i + 1] == '"')
-                    {
-                        field.Append('"');
-                        i++;
-                    }
-                    else
-                    {
-                        inQuotes = false;
-                    }
+                    i = ReadQuotedChar(i);
                 }
                 else
                 {
-                    if (c == '\n')
-                    {
-                        line++;
-                    }
+                    ReadUnquotedChar(_content[i]);
+                }
+            }
 
-                    field.Append(c);
+            if (_inQuotes)
+            {
+                throw new CsvFormatException(_recordStartLine, "Unterminated quoted field.");
+            }
+
+            if (_field.Length > 0 || _fields.Count > 0 || _fieldWasQuoted)
+            {
+                _fields.Add(_field.ToString());
+                AddRecord();
+            }
+
+            return _records;
+        }
+
+        /// <summary>Handles one character inside quotes; returns the index of the last character consumed.</summary>
+        private int ReadQuotedChar(int i)
+        {
+            var c = _content[i];
+            if (c != '"')
+            {
+                if (c == '\n')
+                {
+                    _line++;
                 }
 
-                continue;
+                _field.Append(c);
+                return i;
             }
 
-            switch (c)
+            // A doubled quote is an escaped quote; a single quote closes the field.
+            var nextIsQuote = i + 1 < _content.Length && _content[i + 1] == '"';
+            if (nextIsQuote)
             {
-                case '"' when field.Length == 0 && !fieldWasQuoted:
-                    inQuotes = true;
-                    fieldWasQuoted = true;
-                    break;
-                case '"':
-                    throw new CsvFormatException(line, "Unexpected quote inside an unquoted field.");
-                case ',':
-                    fields.Add(field.ToString());
-                    field.Clear();
-                    fieldWasQuoted = false;
-                    break;
-                case '\r':
-                    break;
-                case '\n':
-                    fields.Add(field.ToString());
-                    AddRecord(records, fields, recordStartLine);
-                    fields = new List<string>();
-                    field.Clear();
-                    fieldWasQuoted = false;
-                    line++;
-                    recordStartLine = line;
-                    break;
-                default:
-                    if (fieldWasQuoted)
-                    {
-                        throw new CsvFormatException(line, "Characters after closing quote.");
-                    }
-
-                    field.Append(c);
-                    break;
+                _field.Append('"');
+                return i + 1;
             }
+
+            _inQuotes = false;
+            return i;
         }
 
-        if (inQuotes)
+        private void ReadUnquotedChar(char c)
         {
-            throw new CsvFormatException(recordStartLine, "Unterminated quoted field.");
+            if (c == '"')
+            {
+                if (_field.Length > 0 || _fieldWasQuoted)
+                {
+                    throw new CsvFormatException(_line, "Unexpected quote inside an unquoted field.");
+                }
+
+                _inQuotes = true;
+                _fieldWasQuoted = true;
+                return;
+            }
+
+            if (c == ',')
+            {
+                _fields.Add(_field.ToString());
+                _field.Clear();
+                _fieldWasQuoted = false;
+                return;
+            }
+
+            if (c == '\r')
+            {
+                return;
+            }
+
+            if (c == '\n')
+            {
+                EndRecord();
+                return;
+            }
+
+            if (_fieldWasQuoted)
+            {
+                throw new CsvFormatException(_line, "Characters after closing quote.");
+            }
+
+            _field.Append(c);
         }
 
-        if (field.Length > 0 || fields.Count > 0 || fieldWasQuoted)
+        private void EndRecord()
         {
-            fields.Add(field.ToString());
-            AddRecord(records, fields, recordStartLine);
+            _fields.Add(_field.ToString());
+            AddRecord();
+            _fields = new List<string>();
+            _field.Clear();
+            _fieldWasQuoted = false;
+            _line++;
+            _recordStartLine = _line;
         }
 
-        return records;
-    }
-
-    private static void AddRecord(List<CsvRecord> records, List<string> fields, int lineNumber)
-    {
-        // Skip completely blank lines (common at the end of spreadsheet exports).
-        if (fields.Count == 1 && fields[0].Length == 0)
+        private void AddRecord()
         {
-            return;
-        }
+            // Skip completely blank lines (common at the end of spreadsheet exports).
+            if (_fields.Count == 1 && _fields[0].Length == 0)
+            {
+                return;
+            }
 
-        records.Add(new CsvRecord(lineNumber, fields));
+            _records.Add(new CsvRecord(_recordStartLine, _fields));
+        }
     }
 }

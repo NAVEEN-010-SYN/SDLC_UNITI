@@ -39,12 +39,13 @@ public final class Waits {
     }
 
     private Wait<WebDriver> fluent(String message) {
-        return new FluentWait<>(driver)
-                .withTimeout(timeout)
-                .pollingEvery(polling)
-                .ignoring(NoSuchElementException.class)
-                .ignoring(StaleElementReferenceException.class)
-                .withMessage(message);
+        FluentWait<WebDriver> wait = new FluentWait<>(driver);
+        wait.withTimeout(timeout);
+        wait.pollingEvery(polling);
+        wait.ignoring(NoSuchElementException.class);
+        wait.ignoring(StaleElementReferenceException.class);
+        wait.withMessage(message);
+        return wait;
     }
 
     public <T> T until(Function<WebDriver, T> condition, String description) {
@@ -90,12 +91,14 @@ public final class Waits {
 
     /** Waits for document.readyState and for the SPA's in-flight fetch counter to drain. */
     public void pageSettled() {
-        until(d -> {
-            JavascriptExecutor js = (JavascriptExecutor) d;
-            Object ready = js.executeScript("return document.readyState");
-            Object pending = js.executeScript("return window.__pendingRequests === undefined ? 0 : window.__pendingRequests");
-            return "complete".equals(ready) && Long.valueOf(0L).equals(toLong(pending));
-        }, "page settled (readyState complete, no pending requests)");
+        until(Waits::isSettled, "page settled (readyState complete, no pending requests)");
+    }
+
+    private static boolean isSettled(WebDriver d) {
+        JavascriptExecutor js = (JavascriptExecutor) d;
+        Object ready = js.executeScript("return document.readyState");
+        Object pending = js.executeScript("return window.__pendingRequests === undefined ? 0 : window.__pendingRequests");
+        return "complete".equals(ready) && toLong(pending) == 0L;
     }
 
     /** Re-locates and clicks, retrying through stale references caused by React re-renders. */
@@ -116,7 +119,10 @@ public final class Waits {
         element.sendKeys(text);
     }
 
-    private static Long toLong(Object value) {
-        return value instanceof Number n ? n.longValue() : -1L;
+    private static long toLong(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).longValue();
+        }
+        return -1L;
     }
 }

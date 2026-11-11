@@ -28,6 +28,18 @@ export interface PageQuery {
   pageSize: number;
 }
 
+export interface PolicyPreviewWarning {
+  policyId: string;
+  message: string;
+  vendor: Vendor;
+}
+
+export interface PolicyPreviewResult {
+  valid: boolean;
+  issues: Finding[];
+  warnings: PolicyPreviewWarning[];
+}
+
 /** Typed endpoint bindings for one account; every path lives here so pages never build URLs. */
 export function sdwanApi(client: ApiClient, accountId: string) {
   const a = `/accounts/${encodeURIComponent(accountId)}`;
@@ -45,7 +57,7 @@ export function sdwanApi(client: ApiClient, accountId: string) {
 
     policies: (edgeId: string, signal?: AbortSignal) => client.get<PolicyView>(`${a}/edges/${id(edgeId)}/policies`, { signal }),
     previewPolicies: (edgeIds: string[], policies: BusinessPolicy[]) =>
-      client.post<{ valid: boolean; issues: Finding[]; warnings: Array<{ policyId: string; message: string; vendor: Vendor }> }>(
+      client.post<PolicyPreviewResult>(
         `${a}/policies/preview`,
         { edgeIds, policies },
       ),

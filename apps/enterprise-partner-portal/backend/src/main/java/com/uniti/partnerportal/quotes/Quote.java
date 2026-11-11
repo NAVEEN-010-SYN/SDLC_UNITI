@@ -14,7 +14,9 @@ import jakarta.persistence.Table;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Entity
@@ -157,11 +159,13 @@ public class Quote extends AuditableEntity {
     }
 
     public long approvalsForCurrentRevision() {
-        return approvals.stream()
-                .filter(a -> a.getRevision() == revision && a.getDecision() == QuoteApproval.Decision.APPROVED)
-                .map(QuoteApproval::getApprover)
-                .distinct()
-                .count();
+        Set<String> approvers = new HashSet<>();
+        for (QuoteApproval a : approvals) {
+            if (a.getRevision() == revision && a.getDecision() == QuoteApproval.Decision.APPROVED) {
+                approvers.add(a.getApprover());
+            }
+        }
+        return approvers.size();
     }
 
     public boolean hasApprovalFrom(String approver) {

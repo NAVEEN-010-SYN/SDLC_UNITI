@@ -4,7 +4,7 @@ namespace Uconnect.Domain.PlanChanges;
 
 /// <summary>
 /// A customer's accepted request to move a service between plans. Lifecycle:
-/// <c>Requested → Scheduled → Provisioning → Completed</c>, with <c>Failed</c> from provisioning and
+/// <c>Requested -> Scheduled -> Provisioning -> Completed</c>, with <c>Failed</c> from provisioning and
 /// <c>Cancelled</c> allowed until provisioning starts.
 /// </summary>
 public sealed class PlanChange : AggregateRoot

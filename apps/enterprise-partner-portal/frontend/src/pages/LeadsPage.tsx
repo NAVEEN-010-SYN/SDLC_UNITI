@@ -75,7 +75,7 @@ function NewLeadForm({ onCreated }: { onCreated: () => void }) {
         <TextField label="Phone" name="contactPhone" error={errors.contactPhone} />
         <TextField label="Postcode" name="postcode" required error={errors.postcode} />
         <TextField label="Sites" name="siteCount" type="number" min={1} max={500} defaultValue={1} error={errors.siteCount} />
-        <TextField label="Est. monthly value (£)" value={mrc} onChange={(e) => setMrc(e.target.value)}
+        <TextField label="Est. monthly value (&pound;)" value={mrc} onChange={(e) => setMrc(e.target.value)}
           inputMode="decimal" error={localError ?? errors.estimatedMrcMinor} />
         <TextField label="Product interest" name="productInterest" error={errors.productInterest} />
         <SelectField label="Source" name="source" options={options(SOURCES)} defaultValue="REFERRAL" />
@@ -200,7 +200,7 @@ export function LeadsPage() {
           setConverting(undefined);
           if (result) {
             setNotice(`Deal ${result.dealReference} registered (${humanise(result.dealStatus)})`
-              + (result.hasConflict ? ' — another partner has an overlapping claim; Uniti will review it.' : '.'));
+              + (result.hasConflict ? ' \u2014 another partner has an overlapping claim; Uniti will review it.' : '.'));
             leads.reload();
           }
         }} />

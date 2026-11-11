@@ -51,7 +51,9 @@ export function buildUrl(baseUrl: string, path: string, query?: Record<string, Q
     if (value !== undefined) params.append(key, String(value));
   }
   const qs = params.toString();
-  return `${baseUrl}${path.startsWith('/') ? path : `/${path}`}${qs ? `?${qs}` : ''}`;
+  const suffix = path.startsWith('/') ? path : `/${path}`;
+  if (!qs) return `${baseUrl}${suffix}`;
+  return `${baseUrl}${suffix}?${qs}`;
 }
 
 export class ApiClient {
@@ -92,30 +94,60 @@ export class ApiClient {
       try {
         return await this.once<T>(method, url, path, body, options, correlationId);
       } catch (error) {
-        const retry = error instanceof ApiError && error.retryable && error.status !== 429 && attempt < maxAttempts && !options.signal?.aborted;
-        if (!retry) throw error;
+        if (!shouldRetry(error, attempt, maxAttempts, options.signal)) throw error;
         await this.sleep(Math.min(2000, 200 * 2 ** (attempt - 1)));
       }
     }
   }
 
   private async once<T>(method: string, url: string, path: string, body: unknown, options: RequestOptions, correlationId: string): Promise<T> {
-    const headers: Record<string, string> = { Accept: 'application/json, application/problem+json', 'X-Correlation-Id': correlationId, ...options.headers };
+    const headers = await this.buildHeaders(body !== undefined, options, correlationId);
+    const response = await this.send(method, url, path, headers, body, options, correlationId);
+
+    const responseCorrelation = response.headers.get('X-Correlation-Id') ?? correlationId;
+    if (response.status === 204) return undefined as T;
+    const payload = await readBody(response);
+
+    if (!response.ok) {
+      if (response.status === 401) this.options.onUnauthorized?.();
+      const problem = toProblem(response.status, response.statusText, payload, path);
+      throw new ApiError({ ...problem, correlationId: problem.correlationId ?? responseCorrelation }, responseCorrelation);
+    }
+    return payload as T;
+  }
+
+  private async buildHeaders(hasBody: boolean, options: RequestOptions, correlationId: string): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json, application/problem+json',
+      'X-Correlation-Id': correlationId,
+      ...options.headers,
+    };
     const token = await this.options.getAccessToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     const accountId = this.options.getAccountId?.();
     if (accountId) headers['X-Account-Id'] = accountId;
     if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (hasBody) headers['Content-Type'] = 'application/json';
+    return headers;
+  }
 
+  /** Runs fetch with a timeout that also honours the caller's abort signal. */
+  private async send(
+    method: string,
+    url: string,
+    path: string,
+    headers: Record<string, string>,
+    body: unknown,
+    options: RequestOptions,
+    correlationId: string,
+  ): Promise<Response> {
     const timeout = new AbortController();
     const timer = setTimeout(() => timeout.abort(), this.options.timeoutMs);
     const onCallerAbort = () => timeout.abort();
     options.signal?.addEventListener('abort', onCallerAbort);
 
-    let response: Response;
     try {
-      response = await this.fetchImpl(url, {
+      return await this.fetchImpl(url, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -133,18 +165,15 @@ export class ApiClient {
       clearTimeout(timer);
       options.signal?.removeEventListener('abort', onCallerAbort);
     }
-
-    const responseCorrelation = response.headers.get('X-Correlation-Id') ?? correlationId;
-    if (response.status === 204) return undefined as T;
-    const payload = await readBody(response);
-
-    if (!response.ok) {
-      if (response.status === 401) this.options.onUnauthorized?.();
-      const problem = toProblem(response.status, response.statusText, payload, path);
-      throw new ApiError({ ...problem, correlationId: problem.correlationId ?? responseCorrelation }, responseCorrelation);
-    }
-    return payload as T;
   }
+}
+
+/** Retries retryable ApiErrors (never 429) while attempts remain and the caller hasn't aborted. */
+function shouldRetry(error: unknown, attempt: number, maxAttempts: number, signal?: AbortSignal): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (!error.retryable || error.status === 429) return false;
+  if (attempt >= maxAttempts) return false;
+  return !signal?.aborted;
 }
 
 async function readBody(response: Response): Promise<unknown> {

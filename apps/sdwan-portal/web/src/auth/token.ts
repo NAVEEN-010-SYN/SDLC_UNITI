@@ -18,7 +18,7 @@ function base64UrlDecode(segment: string): string {
 
 /**
  * Reads the claims the UI needs for navigation and gating. The signature is NOT verified
- * here — the API verifies every request; the client only uses claims to decide what to show.
+ * here - the API verifies every request; the client only uses claims to decide what to show.
  * Returns null for malformed or expired tokens.
  */
 export function decodeSession(token: string, nowMs = Date.now()): SessionUser | null {

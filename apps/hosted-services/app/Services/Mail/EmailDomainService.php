@@ -32,7 +32,12 @@ final class EmailDomainService
      */
     public function listWithQuota(string $accountId): array
     {
-        return array_map(fn (EmailDomain $d) => ['domain' => $d, 'quota' => $this->quotaFor($d)], $this->domains->allForAccount($accountId));
+        $rows = [];
+        foreach ($this->domains->allForAccount($accountId) as $domain) {
+            $rows[] = ['domain' => $domain, 'quota' => $this->quotaFor($domain)];
+        }
+
+        return $rows;
     }
 
     public function get(string $accountId, string $domainId): EmailDomain

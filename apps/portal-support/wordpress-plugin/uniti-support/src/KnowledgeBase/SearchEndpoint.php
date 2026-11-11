@@ -24,38 +24,81 @@ final class SearchEndpoint
 
     public function register(): void
     {
-        add_action('rest_api_init', function (): void {
-            register_rest_route(self::NAMESPACE, '/kb/search', [
-                'methods' => 'GET',
-                'callback' => [$this, 'search'],
-                'permission_callback' => '__return_true',
-                'args' => [
-                    'q' => ['type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field',
-                        'validate_callback' => static fn ($v) => is_string($v) && SearchQuery::terms($v) !== [] && mb_strlen($v) <= 200],
-                    'topic' => ['type' => 'string', 'sanitize_callback' => 'sanitize_title'],
-                    'product' => ['type' => 'string', 'sanitize_callback' => 'sanitize_title'],
-                    'audience' => ['type' => 'string', 'enum' => ['consumer', 'business'], 'default' => 'consumer'],
-                    'page' => ['type' => 'integer', 'minimum' => 1, 'default' => 1],
-                    'pageSize' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 50],
-                ],
-            ]);
-        });
+        add_action('rest_api_init', [$this, 'registerRoutes']);
+    }
+
+    public function registerRoutes(): void
+    {
+        register_rest_route(self::NAMESPACE, '/kb/search', [
+            'methods' => 'GET',
+            'callback' => [$this, 'search'],
+            'permission_callback' => '__return_true',
+            'args' => [
+                'q' => ['type' => 'string', 'required' => true, 'sanitize_callback' => 'sanitize_text_field',
+                    'validate_callback' => [self::class, 'isValidQuery']],
+                'topic' => ['type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+                'product' => ['type' => 'string', 'sanitize_callback' => 'sanitize_title'],
+                'audience' => ['type' => 'string', 'enum' => ['consumer', 'business'], 'default' => 'consumer'],
+                'page' => ['type' => 'integer', 'minimum' => 1, 'default' => 1],
+                'pageSize' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 50],
+            ],
+        ]);
+    }
+
+    public static function isValidQuery(mixed $value): bool
+    {
+        return is_string($value) && SearchQuery::terms($value) !== [] && mb_strlen($value) <= 200;
     }
 
     public function search(WP_REST_Request $request): WP_REST_Response|WP_Error
     {
         $terms = SearchQuery::terms((string) $request['q']);
         $page = (int) $request['page'];
-        $pageSize = (int) ($request['pageSize'] ?? 0) ?: (new Options())->int('kb_results_per_page');
+        $pageSize = (int) ($request['pageSize'] ?? 0);
+        if ($pageSize === 0) {
+            $pageSize = (new Options())->int('kb_results_per_page');
+        }
 
+        $query = new WP_Query($this->queryArgs($request, $terms, $page, $pageSize));
+
+        $items = [];
+        foreach ($query->posts as $post) {
+            $items[] = $this->present($post, $terms);
+        }
+        usort($items, [self::class, 'compareScore']);
+
+        $response = new WP_REST_Response([
+            'items' => $items,
+            'page' => $page,
+            'pageSize' => $pageSize,
+            'total' => (int) $query->found_posts,
+        ]);
+        $response->header('Cache-Control', 'public, max-age=300');
+
+        return $response;
+    }
+
+    /** Highest score first. */
+    public static function compareScore(array $a, array $b): int
+    {
+        return $b['score'] <=> $a['score'];
+    }
+
+    /**
+     * @param list<string> $terms
+     * @return array<string, mixed>
+     */
+    private function queryArgs(WP_REST_Request $request, array $terms, int $page, int $pageSize): array
+    {
         $taxQuery = [];
-        foreach ([PostTypes::TOPIC => 'topic', PostTypes::PRODUCT => 'product'] as $taxonomy => $param) {
+        $filters = [PostTypes::TOPIC => 'topic', PostTypes::PRODUCT => 'product'];
+        foreach ($filters as $taxonomy => $param) {
             if (!empty($request[$param])) {
                 $taxQuery[] = ['taxonomy' => $taxonomy, 'field' => 'slug', 'terms' => (string) $request[$param], 'include_children' => true];
             }
         }
 
-        $query = new WP_Query([
+        return [
             'post_type' => PostTypes::POST_TYPE,
             'post_status' => 'publish',
             's' => implode(' ', $terms),
@@ -69,20 +112,7 @@ final class SearchEndpoint
             ]],
             'no_found_rows' => false,
             'ignore_sticky_posts' => true,
-        ]);
-
-        $items = array_map(fn (WP_Post $post) => $this->present($post, $terms), $query->posts);
-        usort($items, static fn (array $a, array $b) => $b['score'] <=> $a['score']);
-
-        $response = new WP_REST_Response([
-            'items' => $items,
-            'page' => $page,
-            'pageSize' => $pageSize,
-            'total' => (int) $query->found_posts,
-        ]);
-        $response->header('Cache-Control', 'public, max-age=300');
-
-        return $response;
+        ];
     }
 
     /**
@@ -91,14 +121,22 @@ final class SearchEndpoint
      */
     private function present(WP_Post $post, array $terms): array
     {
+        $topicSlugs = [];
         $topics = get_the_terms($post, PostTypes::TOPIC);
+        if (is_array($topics)) {
+            foreach ($topics as $topic) {
+                $topicSlugs[] = $topic->slug;
+            }
+        }
+
+        $text = $post->post_excerpt !== '' ? $post->post_excerpt : $post->post_content;
 
         return [
             'id' => $post->ID,
             'title' => wp_strip_all_tags(get_the_title($post)),
             'url' => esc_url_raw((string) get_permalink($post)),
-            'snippet' => SearchQuery::snippet($post->post_excerpt !== '' ? $post->post_excerpt : $post->post_content, $terms),
-            'topics' => is_array($topics) ? array_map(static fn ($t) => $t->slug, $topics) : [],
+            'snippet' => SearchQuery::snippet($text, $terms),
+            'topics' => $topicSlugs,
             'updatedAt' => get_post_modified_time('Y-m-d\TH:i:s\Z', true, $post),
             'score' => SearchQuery::score($post->post_title, $post->post_content, $terms),
         ];

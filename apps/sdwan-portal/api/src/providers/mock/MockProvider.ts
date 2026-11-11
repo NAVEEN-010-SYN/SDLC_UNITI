@@ -2,7 +2,7 @@ import type { BusinessPolicy, Edge, FirewallRule, LinkSample, SdwanEvent, Vendor
 import { NotFoundProblem } from '../../errors/problem';
 import type { ApplyResult, ConfigSnapshot, DiscoveredSite, ProviderContext, SdwanProvider, TimeRange } from '../SdwanProvider';
 
-/** Deterministic 32-bit hash → [0,1). Same input always produces the same metric. */
+/** Deterministic 32-bit hash -> [0,1). Same input always produces the same metric. */
 function hashUnit(input: string): number {
   let h = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -40,7 +40,7 @@ const SITES: MockSiteDef[] = [
   },
   {
     key: 'branch-north',
-    name: 'Branch – York',
+    name: 'Branch \u2013 York',
     city: 'York',
     postcode: 'YO1 7HH',
     edges: [
@@ -57,7 +57,7 @@ const SITES: MockSiteDef[] = [
   },
   {
     key: 'branch-south',
-    name: 'Branch – Sheffield',
+    name: 'Branch \u2013 Sheffield',
     city: 'Sheffield',
     postcode: 'S1 2HE',
     edges: [
@@ -147,17 +147,22 @@ export class MockProvider implements SdwanProvider {
     const to = Date.parse(range.to);
     const out: LinkSample[] = [];
     for (const link of edge.links) {
-      const baseLatency = link.transport === 'FIBRE' ? 8 : link.transport === 'BROADBAND' ? 22 : 55;
+      let baseLatency = 55;
+      if (link.transport === 'FIBRE') baseLatency = 8;
+      else if (link.transport === 'BROADBAND') baseLatency = 22;
       for (let t = from; t <= to; t += step) {
         const r = hashUnit(`${link.id}:${t}`);
         const spike = r > 0.97;
+        let lossPct = 0;
+        if (spike) lossPct = Math.round(r * 300) / 100;
+        else if (r > 0.9) lossPct = 0.2;
         out.push({
           edgeId: edge.id,
           linkId: link.id,
           timestamp: new Date(t).toISOString(),
           latencyMs: Math.round((baseLatency * (1 + r * 0.6) + (spike ? 180 : 0)) * 10) / 10,
           jitterMs: Math.round((baseLatency * 0.1 + r * 4 + (spike ? 35 : 0)) * 10) / 10,
-          lossPct: spike ? Math.round(r * 300) / 100 : r > 0.9 ? 0.2 : 0,
+          lossPct,
           rxBps: Math.round(link.bandwidthDownKbps * 1000 * (0.15 + 0.5 * hashUnit(`${link.id}:rx:${t}`))),
           txBps: Math.round(link.bandwidthUpKbps * 1000 * (0.1 + 0.4 * hashUnit(`${link.id}:tx:${t}`))),
         });

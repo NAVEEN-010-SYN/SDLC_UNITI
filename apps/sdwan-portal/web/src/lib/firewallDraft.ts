@@ -49,7 +49,7 @@ function parseCidrList(raw: string): { cidrs: string[]; bad?: string } {
   return { cidrs };
 }
 
-/** "80,443,8000-8080" or "any" → port ranges; same grammar as the API's parsePortList. */
+/** "80,443,8000-8080" or "any" -> port ranges; same grammar as the API's parsePortList. */
 export function parsePorts(raw: string): PortRange[] | null {
   const trimmed = raw.trim();
   if (!trimmed || trimmed.toLowerCase() === 'any') return [];
@@ -74,7 +74,7 @@ export function formatCidrs(cidrs: string[]): string {
 }
 
 /**
- * Validates a form and builds the rule, mirroring the API's schema limits (name ≤ 35
+ * Validates a form and builds the rule, mirroring the API's schema limits (name <= 35
  * chars for FortiOS, no ports on ICMP) so most mistakes are caught before a round trip.
  */
 export function buildRule(form: FirewallRuleForm, existing: FirewallRule[], id: string): { rule?: FirewallRule; errors: FormErrors } {

@@ -75,7 +75,7 @@ export class InventoryService {
           vendorRef: { vendor: m.vendor, tenant: m.tenant, id: d.vendorId },
           edgeIds: d.edgeVendorIds.map((v) => edgeIdByVendorId.get(v)).filter((x): x is string => !!x),
         }));
-        // Normalise the edge → site link using the discovered site membership.
+        // Normalise the edge -> site link using the discovered site membership.
         const siteByEdge = new Map(sites.flatMap((s) => s.edgeIds.map((e) => [e, s.id] as const)));
         return { sites, edges: edges.map((e) => ({ ...e, accountId, siteId: siteByEdge.get(e.id) ?? e.siteId })) };
       }),

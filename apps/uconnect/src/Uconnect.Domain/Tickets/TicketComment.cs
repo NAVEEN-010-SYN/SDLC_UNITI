@@ -54,7 +54,7 @@ public sealed record TicketSla(TimeSpan FirstResponse, TimeSpan Resolution);
 
 /// <summary>
 /// Service-level targets. P1 is a total loss of service for a business customer; P4 is a general
-/// enquiry. Targets are in elapsed (24×7) time.
+/// enquiry. Targets are in elapsed (24x7) time.
 /// </summary>
 public static class TicketSlaPolicy
 {
@@ -93,12 +93,17 @@ public static class TicketTriage
             return isBusiness ? TicketPriority.P2 : TicketPriority.P3;
         }
 
-        return category switch
+        switch (category)
         {
-            TicketCategory.Installation => TicketPriority.P2,
-            TicketCategory.Complaint => TicketPriority.P3,
-            TicketCategory.Billing or TicketCategory.PlanChange => isBusiness ? TicketPriority.P3 : TicketPriority.P4,
-            _ => TicketPriority.P4,
-        };
+            case TicketCategory.Installation:
+                return TicketPriority.P2;
+            case TicketCategory.Complaint:
+                return TicketPriority.P3;
+            case TicketCategory.Billing:
+            case TicketCategory.PlanChange:
+                return isBusiness ? TicketPriority.P3 : TicketPriority.P4;
+            default:
+                return TicketPriority.P4;
+        }
     }
 }

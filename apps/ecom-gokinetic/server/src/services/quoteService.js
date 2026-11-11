@@ -6,33 +6,17 @@ const {
   BusinessRuleError,
   ValidationError,
 } = require('../errors');
-const { QUOTE_STATUS, ORDER_STATUS, PAYMENT_STATUS, PRODUCT_TYPES, SEGMENTS } = require('../domain/constants');
-const { quoteStateMachine, orderStateMachine } = require('../domain/stateMachine');
-const { generateQuoteNumber, generateOrderNumber } = require('../domain/identifiers');
+const { QUOTE_STATUS, PRODUCT_TYPES, SEGMENTS } = require('../domain/constants');
+const { quoteStateMachine } = require('../domain/stateMachine');
+const { generateQuoteNumber } = require('../domain/identifiers');
 const { priceItems } = require('../domain/pricing');
 const { resolveTaxBps, toPricingLines, itemFromProduct } = require('./pricingContext');
+const { mapWithConcurrency, priceSiteDrafts, buildSiteOrder } = require('./quoteHelpers');
 const { canAccessAccountResource } = require('../middleware/rbac');
 const { logger } = require('../config/logger');
 
 const SITE_CHECK_CONCURRENCY = 5;
 const DAY_MS = 24 * 3600 * 1000;
-
-/**
- * Runs `worker` over `items` with at most `limit` in flight.
- */
-async function mapWithConcurrency(items, limit, worker) {
-  const results = new Array(items.length);
-  let next = 0;
-  async function lane() {
-    while (next < items.length) {
-      const index = next;
-      next += 1;
-      results[index] = await worker(items[index], index);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
-  return results;
-}
 
 /**
  * Business GoKinetic multi-site quotes.
@@ -299,19 +283,9 @@ function createQuoteService({
         throw new ValidationError([{ path: 'paymentToken', message: 'Is required for accounts without credit terms.' }]);
       }
       const sites = quote.sites.filter((s) => s.serviceable);
-      const siteCountOverride = sites.length;
-      const drafts = sites.map((site) => {
-        const pricing = priceItems({
-          lines: toPricingLines(quote.items),
-          contractTermMonths: quote.contractTermMonths,
-          segment: SEGMENTS.BUSINESS,
-          negotiatedDiscountBps: quote.negotiatedDiscountBps,
-          taxBps: resolveTaxBps(site.address, account),
-          siteCountOverride,
-        });
-        return { site, pricing, orderNumber: generateOrderNumber(now()) };
-      });
-      const dueToday = drafts.reduce((acc, d) => acc + d.pricing.dueToday, 0);
+      const drafts = priceSiteDrafts(quote, sites, account, now);
+      let dueToday = 0;
+      for (const draft of drafts) dueToday += draft.pricing.dueToday;
 
       let authorization = { status: 'NOT_REQUIRED', reference: null };
       if (!onCredit) {
@@ -326,40 +300,8 @@ function createQuoteService({
 
       const created = [];
       for (const draft of drafts) {
-        const at = now();
-        const order = {
-          orderNumber: draft.orderNumber,
-          accountId: quote.accountId,
-          userId: principal.id,
-          segment: SEGMENTS.BUSINESS,
-          status: ORDER_STATUS.DRAFT,
-          items: quote.items,
-          statusHistory: [{ from: null, to: ORDER_STATUS.DRAFT, at, actor: principal.id }],
-        };
-        const submitEntry = orderStateMachine.transition(order, ORDER_STATUS.SUBMITTED, { actor: principal.id, at });
-        created.push(
-          await orders.create({
-            ...order,
-            status: ORDER_STATUS.SUBMITTED,
-            statusHistory: [...order.statusHistory, submitEntry],
-            contractTermMonths: quote.contractTermMonths,
-            serviceAddress: draft.site.address,
-            billingAddress: draft.site.address,
-            contact: { email: quote.contactEmail, phone: quote.contactPhone || '0000000000', firstName: quote.companyName, lastName: '' || '-' },
-            pricing: draft.pricing,
-            currency: 'USD',
-            dueToday: draft.pricing.dueToday,
-            monthlyRecurring: draft.pricing.recurring.total,
-            serviceabilityCheckId: draft.site.checkId,
-            sourceQuoteNumber: quote.quoteNumber,
-            submittedAt: at,
-            payment: {
-              status: onCredit ? PAYMENT_STATUS.NOT_REQUIRED : PAYMENT_STATUS.AUTHORIZED,
-              gatewayReference: authorization.reference,
-              authorizedAmount: onCredit ? 0 : draft.pricing.dueToday,
-            },
-          }),
-        );
+        const record = buildSiteOrder({ quote, draft, principal, onCredit, authorization, at: now() });
+        created.push(await orders.create(record));
       }
       const converted = await transition(quote, QUOTE_STATUS.CONVERTED, {
         actor: principal.id,

@@ -15,6 +15,9 @@ final class AddressNormaliser
         'BOULEVARD' => 'BLVD', 'COURT' => 'CT', 'PLACE' => 'PL', 'TERRACE' => 'TER', 'HIGHWAY' => 'HWY',
     ];
 
+    // Pound and euro signs written as escapes to keep the file ASCII.
+    private const CURRENCY_SYMBOLS = ['USD' => '$', 'CAD' => 'CA$', 'GBP' => "\u{00A3}", 'EUR' => "\u{20AC}"];
+
     /**
      * @param array<string, mixed> $input Already unslashed form input.
      * @return array{address: ?array{line1: string, unit: ?string, zip: string}, errors: array<string, string>}
@@ -72,23 +75,40 @@ final class AddressNormaliser
                 'sort' => (int) $plan['downMbps'],
             ];
         }
-        usort($plans, static fn (array $a, array $b) => $a['sort'] <=> $b['sort']);
+        usort($plans, [self::class, 'compareSort']);
+
+        $publicPlans = [];
+        foreach ($plans as $plan) {
+            unset($plan['sort']);
+            $publicPlans[] = $plan;
+        }
 
         return [
             'serviceable' => ($response['status'] ?? '') === 'SERVICEABLE' && $plans !== [],
-            'plans' => array_map(static fn (array $p) => array_diff_key($p, ['sort' => true]), $plans),
+            'plans' => $publicPlans,
             'installWindow' => isset($response['earliestInstallDate']) ? (string) $response['earliestInstallDate'] : null,
         ];
     }
 
+    /** Slowest plan first. */
+    public static function compareSort(array $a, array $b): int
+    {
+        return $a['sort'] <=> $b['sort'];
+    }
+
     public static function speed(int $mbps): string
     {
-        return $mbps >= 1000 && $mbps % 1000 === 0 ? ($mbps / 1000) . ' Gbps' : $mbps . ' Mbps';
+        if ($mbps >= 1000 && $mbps % 1000 === 0) {
+            return ($mbps / 1000) . ' Gbps';
+        }
+
+        return $mbps . ' Mbps';
     }
 
     public static function money(int $amountMinor, string $currency): string
     {
-        $symbol = ['USD' => '$', 'CAD' => 'CA$', 'GBP' => '£', 'EUR' => '€'][strtoupper($currency)] ?? strtoupper($currency) . ' ';
+        $currency = strtoupper($currency);
+        $symbol = self::CURRENCY_SYMBOLS[$currency] ?? $currency . ' ';
         $sign = $amountMinor < 0 ? '-' : '';
         $abs = abs($amountMinor);
 

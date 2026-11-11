@@ -64,17 +64,7 @@ final class ProblemRenderer
     public function toProblem(Throwable $e): array
     {
         if ($e instanceof ApiException) {
-            $extensions = $e->extensions();
-            if (isset($extensions['errors']) && is_array($extensions['errors'])) {
-                $extensions['errors'] = FieldCase::camelErrors($extensions['errors']);
-            }
-
-            return [
-                'type' => $this->typeBaseUri . $e->problemType(),
-                'title' => $e->title(),
-                'status' => $e->status(),
-                'detail' => $e->detail(),
-            ] + $extensions;
+            return $this->apiProblem($e);
         }
 
         if ($e instanceof ValidationException) {
@@ -108,14 +98,7 @@ final class ProblemRenderer
         }
 
         if ($e instanceof HttpExceptionInterface) {
-            $status = $e->getStatusCode();
-
-            return [
-                'type' => 'about:blank',
-                'title' => JsonResponse::$statusTexts[$status] ?? 'Error',
-                'status' => $status,
-                'detail' => $e->getMessage() !== '' ? $e->getMessage() : (JsonResponse::$statusTexts[$status] ?? 'Error'),
-            ];
+            return $this->httpProblem($e);
         }
 
         $problem = [
@@ -131,6 +114,43 @@ final class ProblemRenderer
         }
 
         return $problem;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function apiProblem(ApiException $e): array
+    {
+        $extensions = $e->extensions();
+        if (isset($extensions['errors']) && is_array($extensions['errors'])) {
+            $extensions['errors'] = FieldCase::camelErrors($extensions['errors']);
+        }
+
+        $problem = [
+            'type' => $this->typeBaseUri . $e->problemType(),
+            'title' => $e->title(),
+            'status' => $e->status(),
+            'detail' => $e->detail(),
+        ];
+
+        return $problem + $extensions;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function httpProblem(HttpExceptionInterface $e): array
+    {
+        $status = $e->getStatusCode();
+        $statusText = JsonResponse::$statusTexts[$status] ?? 'Error';
+        $detail = $e->getMessage() !== '' ? $e->getMessage() : $statusText;
+
+        return [
+            'type' => 'about:blank',
+            'title' => $statusText,
+            'status' => $status,
+            'detail' => $detail,
+        ];
     }
 
     /**

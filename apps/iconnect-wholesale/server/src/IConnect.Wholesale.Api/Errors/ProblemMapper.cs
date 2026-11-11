@@ -14,20 +14,53 @@ public static class ProblemMapper
     public const string TypeBase = "/api/v1/problems/";
     public const string ClientClosedRequest = "client.closed_request";
 
-    public static ProblemDetails Map(Exception exception) => exception switch
+    /// <summary>Checks are ordered: more specific exception types come before their base types.</summary>
+    public static ProblemDetails Map(Exception exception)
     {
-        RequestValidationException ex => Validation(ex.Errors),
-        NotFoundException ex => Create(StatusCodes.Status404NotFound, "Resource not found", $"{ToCode(ex.Resource)}.not_found", ex.Message),
-        ConflictException ex => Create(StatusCodes.Status409Conflict, "Conflict with current state", ex.Code, ex.Message),
-        ForbiddenException ex => Create(StatusCodes.Status403Forbidden, "Forbidden", "forbidden", ex.Message),
-        InvalidTransitionException ex => Create(StatusCodes.Status409Conflict, "Transition not allowed", ex.Code, ex.Message),
-        DomainException ex => Create(StatusCodes.Status422UnprocessableEntity, "Business rule violated", ex.Code, ex.Message),
-        BadHttpRequestException ex => Create(ex.StatusCode, "Bad request", ex.StatusCode == StatusCodes.Status413PayloadTooLarge
-            ? "request.too_large" : "request.malformed", ex.Message),
-        OperationCanceledException => Create(499, "Client closed request", ClientClosedRequest, null),
-        _ => Create(StatusCodes.Status500InternalServerError, "Unexpected error", "server.error",
-            "An unexpected error occurred. Quote the correlation id when contacting support."),
-    };
+        if (exception is RequestValidationException validation)
+        {
+            return Validation(validation.Errors);
+        }
+
+        if (exception is NotFoundException notFound)
+        {
+            return Create(StatusCodes.Status404NotFound, "Resource not found", $"{ToCode(notFound.Resource)}.not_found", notFound.Message);
+        }
+
+        if (exception is ConflictException conflict)
+        {
+            return Create(StatusCodes.Status409Conflict, "Conflict with current state", conflict.Code, conflict.Message);
+        }
+
+        if (exception is ForbiddenException forbidden)
+        {
+            return Create(StatusCodes.Status403Forbidden, "Forbidden", "forbidden", forbidden.Message);
+        }
+
+        if (exception is InvalidTransitionException transition)
+        {
+            return Create(StatusCodes.Status409Conflict, "Transition not allowed", transition.Code, transition.Message);
+        }
+
+        if (exception is DomainException domain)
+        {
+            return Create(StatusCodes.Status422UnprocessableEntity, "Business rule violated", domain.Code, domain.Message);
+        }
+
+        if (exception is BadHttpRequestException badRequest)
+        {
+            var code = badRequest.StatusCode == StatusCodes.Status413PayloadTooLarge ? "request.too_large" : "request.malformed";
+            return Create(badRequest.StatusCode, "Bad request", code, badRequest.Message);
+        }
+
+        if (exception is OperationCanceledException)
+        {
+            return Create(499, "Client closed request", ClientClosedRequest, null);
+        }
+
+        return Create(StatusCodes.Status500InternalServerError, "Unexpected error", "server.error",
+            "An unexpected error occurred. Quote the correlation id when contacting support.");
+    }
 
     public static ValidationProblemDetails Validation(IReadOnlyDictionary<string, string[]> errors)
     {

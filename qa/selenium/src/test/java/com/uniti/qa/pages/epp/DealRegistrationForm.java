@@ -2,6 +2,7 @@ package com.uniti.qa.pages.epp;
 
 import com.uniti.qa.core.wait.Waits;
 import com.uniti.qa.data.DealData;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
@@ -97,7 +98,11 @@ public final class DealRegistrationForm {
     }
 
     public List<String> fieldErrors() {
-        return driver.findElements(FIELD_ERRORS).stream().map(e -> e.getText().trim()).toList();
+        List<String> errors = new ArrayList<>();
+        for (WebElement error : driver.findElements(FIELD_ERRORS)) {
+            errors.add(error.getText().trim());
+        }
+        return errors;
     }
 
     public boolean isFieldInvalid(String name) {

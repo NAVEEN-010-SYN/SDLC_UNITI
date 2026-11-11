@@ -73,7 +73,7 @@ public sealed class Outage : AggregateRoot
     public TimeSpan Duration(DateTimeOffset now) => (ResolvedAt ?? now) - StartedAt;
 
     /// <summary>
-    /// Posts a progress update. Status may only move forward (Investigating → Identified → Monitoring →
+    /// Posts a progress update. Status may only move forward (Investigating -> Identified -> Monitoring ->
     /// Resolved); Monitoring can fall back to Identified if the fix did not hold.
     /// </summary>
     public void PostUpdate(OutageStatus status, string message, DateTimeOffset? newEta, DateTimeOffset now)

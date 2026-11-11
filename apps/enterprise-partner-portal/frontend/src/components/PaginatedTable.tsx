@@ -63,7 +63,7 @@ export function PaginatedTable<T>({
       </table>
       {page && page.total > 0 && (
         <nav className="pager" aria-label="Pagination">
-          <span>{first}–{last} of {page.total}</span>
+          <span>{first}&ndash;{last} of {page.total}</span>
           <button type="button" disabled={loading || page.page <= 1} onClick={() => onPageChange(page.page - 1)}>
             Previous
           </button>

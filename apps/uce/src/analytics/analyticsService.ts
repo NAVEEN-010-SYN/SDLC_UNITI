@@ -34,25 +34,28 @@ export class AnalyticsService {
   }
 
   private async applyConsent(): Promise<void> {
-    await Promise.all(
-      this.adapters.map(async (adapter) => {
-        const granted = this.options.isGranted(adapter.category);
-        if (granted && !this.active.has(adapter)) {
-          try {
-            await adapter.enable();
-            this.active.add(adapter);
-            if (this.identity) adapter.identify(this.identity);
-            if (this.currentPage) adapter.page(this.currentPage);
-          } catch (error) {
-            adapter.disable();
-            this.options.onAdapterError?.(adapter.name, error);
-          }
-        } else if (!granted && this.active.has(adapter)) {
-          this.active.delete(adapter);
-          adapter.disable();
-        }
-      }),
-    );
+    await Promise.all(this.adapters.map((adapter) => this.syncAdapter(adapter)));
+  }
+
+  /** Enables a newly granted adapter (replaying identity/page) or disables a revoked one. */
+  private async syncAdapter(adapter: AnalyticsAdapter): Promise<void> {
+    const granted = this.options.isGranted(adapter.category);
+    const isActive = this.active.has(adapter);
+    if (!granted && isActive) {
+      this.active.delete(adapter);
+      adapter.disable();
+      return;
+    }
+    if (!granted || isActive) return;
+    try {
+      await adapter.enable();
+      this.active.add(adapter);
+      if (this.identity) adapter.identify(this.identity);
+      if (this.currentPage) adapter.page(this.currentPage);
+    } catch (error) {
+      adapter.disable();
+      this.options.onAdapterError?.(adapter.name, error);
+    }
   }
 
   identify(identity: AnalyticsIdentity): void {
@@ -100,9 +103,18 @@ export class AnalyticsService {
 
 /** Derives a stable page type from a path, stripping identifiers so they never reach vendors. */
 export function pageTypeFor(path: string): string {
-  const segments = path
-    .split('/')
-    .filter(Boolean)
-    .map((s) => (/^(ACC|INV|TKT|ORD)-\d+$/i.test(s) || /^[0-9a-f-]{16,}$/i.test(s) || /^\d+$/.test(s) ? ':id' : s.toLowerCase()));
-  return segments.length === 0 ? 'home' : segments.join('/');
+  const segments: string[] = [];
+  for (const part of path.split('/')) {
+    if (!part) continue;
+    segments.push(isIdentifierSegment(part) ? ':id' : part.toLowerCase());
+  }
+  if (segments.length === 0) return 'home';
+  return segments.join('/');
+}
+
+/** Domain ids (ACC-/INV-/TKT-/ORD-), uuids/hex ids and plain numbers. */
+function isIdentifierSegment(segment: string): boolean {
+  if (/^(ACC|INV|TKT|ORD)-\d+$/i.test(segment)) return true;
+  if (/^[0-9a-f-]{16,}$/i.test(segment)) return true;
+  return /^\d+$/.test(segment);
 }

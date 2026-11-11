@@ -72,11 +72,17 @@ export class InMemoryTranscriptRepository implements TranscriptRepository {
 
 /** Renders a transcript as plain text for agent handoff context. */
 export function renderTranscript(entries: TranscriptEntry[]): string {
-  return entries
-    .map((e) => {
-      const time = e.createdAt.slice(11, 16);
-      const who = e.author === 'USER' ? 'Customer' : e.author === 'BOT' ? 'Bot' : e.author === 'AGENT' ? 'Agent' : 'System';
-      return `[${time}] ${who}: ${e.text}`;
-    })
-    .join('\n');
+  const lines: string[] = [];
+  for (const e of entries) {
+    const time = e.createdAt.slice(11, 16);
+    lines.push(`[${time}] ${authorLabel(e.author)}: ${e.text}`);
+  }
+  return lines.join('\n');
+}
+
+function authorLabel(author: TranscriptEntry['author']): string {
+  if (author === 'USER') return 'Customer';
+  if (author === 'BOT') return 'Bot';
+  if (author === 'AGENT') return 'Agent';
+  return 'System';
 }

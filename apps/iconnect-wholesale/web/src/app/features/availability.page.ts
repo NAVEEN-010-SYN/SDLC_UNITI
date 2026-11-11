@@ -36,7 +36,7 @@ import { ProblemComponent, StatusLabelPipe } from '../shared/shared';
     @if (result(); as r) {
       <div class="card">
         <h2>{{ r.address }}</h2>
-        <p>UPRN {{ r.uprn }} · Exchange {{ r.exchangeCode }} · {{ r.buildStatus | statusLabel }} · up to {{ r.maxDownstreamMbps }} Mbps</p>
+        <p>UPRN {{ r.uprn }} &middot; Exchange {{ r.exchangeCode }} &middot; {{ r.buildStatus | statusLabel }} &middot; up to {{ r.maxDownstreamMbps }} Mbps</p>
         @if (r.readyForServiceDate) { <p>Ready for service from {{ r.readyForServiceDate | date: 'd MMM y' }}</p> }
         <p>Recommended order: <strong>{{ r.recommendedOrderType | statusLabel }}</strong>,
           earliest completion <strong>{{ r.earliestCompletionDate | date: 'd MMM y' }}</strong></p>

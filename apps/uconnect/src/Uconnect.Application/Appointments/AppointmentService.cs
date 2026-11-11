@@ -19,7 +19,7 @@ namespace Uconnect.Application.Appointments;
 /// record is committed, and a failed commit cancels the new work order, so the two systems never disagree
 /// about whether an engineer is coming.
 /// </summary>
-public sealed class AppointmentService
+public sealed partial class AppointmentService
 {
     private readonly AccountAccessGuard _guard;
     private readonly ServiceInventoryService _inventory;
@@ -137,16 +137,7 @@ public sealed class AppointmentService
         var workOrder = await _fieldService.CreateWorkOrderAsync(ToWorkOrder(appointment), ct);
         appointment.Confirm(workOrder.WorkOrderRef, workOrder.EngineerName);
         _appointments.Add(appointment);
-
-        try
-        {
-            await _unitOfWork.SaveChangesAsync(ct);
-        }
-        catch
-        {
-            await _fieldService.CancelWorkOrderAsync(workOrder.WorkOrderRef, "Booking could not be recorded", CancellationToken.None);
-            throw;
-        }
+        await SaveOrCancelWorkOrderAsync(workOrder.WorkOrderRef, ct);
 
         _logger.LogInformation(
             "Appointment {Reference} ({Type}) booked for {AccountNumber} on {Slot}, work order {WorkOrderRef}",
@@ -239,77 +230,5 @@ public sealed class AppointmentService
 
         await _unitOfWork.SaveChangesAsync(ct);
         return appointment.ToDto(now);
-    }
-
-    private static void EnsureServiceStateFor(AppointmentType type, Service? service)
-    {
-        var allowed = type switch
-        {
-            AppointmentType.Installation => service is { Status: ServiceStatus.PendingActivation },
-            AppointmentType.Repair => service is { IsLive: true },
-            AppointmentType.Upgrade => service is { Status: ServiceStatus.Active },
-            _ => service is null || service.Status != ServiceStatus.Cancelled,
-        };
-
-        if (!allowed)
-        {
-            throw new ConflictException("appointment.service_state", $"A {type.ToString().ToLowerInvariant()} visit cannot be booked for this service in its current state.");
-        }
-    }
-
-    private async Task<Ticket> LoadOpenFaultTicketAsync(Guid accountId, string reference, CancellationToken ct)
-    {
-        var ticket = await _tickets.GetByReferenceAsync(reference.Trim().ToUpperInvariant(), ct);
-        if (ticket is null || ticket.AccountId != accountId)
-        {
-            throw new NotFoundException("Ticket", reference);
-        }
-
-        if (ticket.Category != TicketCategory.Fault || !ticket.IsOpen)
-        {
-            throw new ConflictException("appointment.ticket_not_open_fault", $"Ticket {ticket.Reference} is not an open fault.");
-        }
-
-        return ticket;
-    }
-
-    private async Task EnsureSlotBookableAsync(AppointmentType type, AppointmentSlot slot, PostalAddress address, CancellationToken ct)
-    {
-        var holidays = await LoadHolidaysAsync(ct);
-        AppointmentSchedulingPolicy.EnsureBookable(type, slot, _clock.Today, holidays);
-        var capacity = await _fieldService.GetCapacityAsync(address.OutwardCode, new[] { slot }, ct);
-        if (capacity.GetValueOrDefault(slot) <= 0)
-        {
-            throw new ConflictException("appointment.slot_full", "That visit window is no longer available; please choose another.");
-        }
-    }
-
-    private Task<IReadOnlySet<DateOnly>> LoadHolidaysAsync(CancellationToken ct)
-    {
-        var today = _clock.Today;
-        return _holidays.GetHolidaysAsync(today, today.AddDays(AppointmentSchedulingPolicy.BookingHorizonDays + 14), ct);
-    }
-
-    private static WorkOrderRequest ToWorkOrder(Appointment appointment) => new(
-        appointment.Id,
-        appointment.Reference,
-        appointment.Type,
-        appointment.Slot,
-        appointment.VisitAddress,
-        appointment.ContactName,
-        appointment.ContactPhone.Value,
-        appointment.AccessNotes);
-
-    private async Task<(Account Account, Appointment Appointment)> LoadAsync(
-        string accountNumber, string reference, AccountPermission permission, CancellationToken ct)
-    {
-        var account = await _guard.AuthorizeAsync(accountNumber, permission, ct);
-        var appointment = await _appointments.GetByReferenceAsync(reference.Trim().ToUpperInvariant(), ct);
-        if (appointment is null || appointment.AccountId != account.Id)
-        {
-            throw new NotFoundException("Appointment", reference);
-        }
-
-        return (account, appointment);
     }
 }

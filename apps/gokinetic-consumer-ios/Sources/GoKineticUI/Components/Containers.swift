@@ -26,7 +26,7 @@ public struct Card<Content: View>: View {
     }
 }
 
-/// Large metric with caption, e.g. "$84.99 — Balance".
+/// Large metric with caption, e.g. "$84.99 - Balance".
 public struct StatTile: View {
     private let value: String
     private let caption: String

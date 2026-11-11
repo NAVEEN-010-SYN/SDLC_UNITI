@@ -104,21 +104,19 @@ export type NewTicket = Omit<
   'id' | 'status' | 'escalationLevel' | 'firstResponseAt' | 'resolvedAt' | 'closedAt' | 'pendingSince' | 'pausedMs' | 'version'
 >;
 
-export type TicketPatch = Partial<
-  Pick<
-    Ticket,
-    | 'status'
-    | 'priority'
-    | 'escalationLevel'
-    | 'firstResponseAt'
-    | 'resolvedAt'
-    | 'closedAt'
-    | 'pendingSince'
-    | 'pausedMs'
-    | 'responseDueAt'
-    | 'resolutionDueAt'
-  >
->;
+/** Ticket fields that can be changed after creation. */
+export interface TicketPatch {
+  status?: TicketStatus;
+  priority?: TicketPriority;
+  escalationLevel?: number;
+  firstResponseAt?: string | null;
+  resolvedAt?: string | null;
+  closedAt?: string | null;
+  pendingSince?: string | null;
+  pausedMs?: number;
+  responseDueAt?: string;
+  resolutionDueAt?: string;
+}
 
 export interface NewTicketEvent {
   ticketId: string;

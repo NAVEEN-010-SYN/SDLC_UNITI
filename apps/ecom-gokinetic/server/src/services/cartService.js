@@ -10,6 +10,7 @@ const {
 const { PRODUCT_TYPES, SEGMENTS } = require('../domain/constants');
 const { priceItems } = require('../domain/pricing');
 const { resolveTaxBps, toPricingLines, itemFromProduct, refreshItemPrices } = require('./pricingContext');
+const rules = require('./cartRules');
 
 const MAX_DISTINCT_ITEMS = 20;
 
@@ -35,11 +36,6 @@ function createCartService({
 }) {
   const expiry = () => new Date(now().getTime() + cartTtlHours * 3600000);
 
-  function tokensMatch(a, b) {
-    if (!a || !b || a.length !== b.length) return false;
-    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
-  }
-
   /** Owned carts need the owner (or support); guest carts need their token. */
   function assertAccess(cart, principal, guestToken) {
     if (cart.userId) {
@@ -47,7 +43,7 @@ function createCartService({
       if (principal && principal.roles.includes('SUPPORT_AGENT')) return;
       throw new ForbiddenError('This cart belongs to another user.');
     }
-    if (!tokensMatch(guestToken, cart.guestToken)) {
+    if (!rules.tokensMatch(guestToken, cart.guestToken)) {
       throw new ForbiddenError('A valid cart token is required.');
     }
   }
@@ -72,21 +68,6 @@ function createCartService({
     return updated;
   }
 
-  /** Removes add-ons that are incompatible with the plan currently in `items`. */
-  function pruneIncompatible(items, productsBySku) {
-    const plan = items.find((i) => i.productType === PRODUCT_TYPES.PLAN);
-    const removed = [];
-    const kept = items.filter((item) => {
-      const product = productsBySku.get(item.sku);
-      if (!product || !product.requiresPlan) return true;
-      const compatible =
-        plan && (product.compatiblePlanSkus.length === 0 || product.compatiblePlanSkus.includes(plan.sku));
-      if (!compatible) removed.push(item.sku);
-      return compatible;
-    });
-    return { items: kept, removed };
-  }
-
   async function catalogueFor(items) {
     const list = await products.findActiveBySkus(items.map((i) => i.sku));
     return new Map(list.map((p) => [p.sku, p]));
@@ -101,28 +82,8 @@ function createCartService({
     const { items, warnings } = refreshItemPrices(cart.items, catalogue);
     const account = cart.accountId ? await accounts.findByAccountId(cart.accountId) : null;
 
-    let promoDescriptor = null;
-    if (cart.promoCode) {
-      const evaluation = await promoService.evaluate(cart.promoCode, {
-        segment: cart.segment,
-        accountId: cart.accountId,
-        skus: items.map((i) => i.sku),
-        monthlySubtotal: items.reduce((a, i) => a + i.unitMonthly * i.quantity, 0),
-        contractTermMonths: cart.contractTermMonths,
-      });
-      if (evaluation.ok) promoDescriptor = evaluation.descriptor;
-      else warnings.push({ code: evaluation.code, message: evaluation.message, promoCode: cart.promoCode });
-    }
-
-    if (cart.serviceability) {
-      const planSkus = items.filter((i) => i.productType === PRODUCT_TYPES.PLAN).map((i) => i.sku);
-      const blocked = planSkus.filter((s) => !cart.serviceability.availablePlanSkus.includes(s));
-      if (!cart.serviceability.serviceable) {
-        warnings.push({ code: 'ADDRESS_NOT_SERVICEABLE', message: 'Fibre is not available at the service address.' });
-      } else if (blocked.length) {
-        warnings.push({ code: 'PLAN_NOT_AVAILABLE_AT_ADDRESS', skus: blocked, message: 'The selected plan is not available at this address.' });
-      }
-    }
+    const promoDescriptor = await evaluateCartPromo(cart, items, warnings);
+    warnings.push(...rules.serviceabilityWarnings(cart.serviceability, items));
 
     const pricing = priceItems({
       lines: toPricingLines(items),
@@ -144,17 +105,32 @@ function createCartService({
       promoCode: cart.promoCode,
       pricing,
       warnings,
-      readyForCheckout: isReady(cart, items, warnings),
+      readyForCheckout: rules.isReady(cart, items, warnings),
       expiresAt: cart.expiresAt,
     };
   }
 
-  function isReady(cart, items, warnings) {
-    const hasPlan = items.some((i) => i.productType === PRODUCT_TYPES.PLAN);
-    const blocking = warnings.some((w) =>
-      ['ADDRESS_NOT_SERVICEABLE', 'PLAN_NOT_AVAILABLE_AT_ADDRESS', 'ITEM_UNAVAILABLE'].includes(w.code),
-    );
-    return hasPlan && Boolean(cart.serviceability) && !blocking;
+  /** Re-evaluates the cart promo; returns its descriptor or adds a warning. */
+  async function evaluateCartPromo(cart, items, warnings) {
+    if (!cart.promoCode) return null;
+    const evaluation = await promoService.evaluate(cart.promoCode, {
+      segment: cart.segment,
+      accountId: cart.accountId,
+      skus: items.map((i) => i.sku),
+      monthlySubtotal: rules.monthlySubtotal(items),
+      contractTermMonths: cart.contractTermMonths,
+    });
+    if (evaluation.ok) return evaluation.descriptor;
+    warnings.push({ code: evaluation.code, message: evaluation.message, promoCode: cart.promoCode });
+    return null;
+  }
+
+  /** Prunes incompatible add-ons and saves the new item list. */
+  async function saveItems(cart, items) {
+    const catalogue = await catalogueFor(items);
+    const pruned = rules.pruneIncompatible(items, catalogue);
+    const saved = await save(cart, { items: pruned.items });
+    return { saved, removed: pruned.removed };
   }
 
   return {
@@ -198,31 +174,12 @@ function createCartService({
       const newQuantity = (existing ? existing.quantity : 0) + quantity;
 
       if (product.type === PRODUCT_TYPES.PLAN) {
-        if (cart.segment === SEGMENTS.CONSUMER && newQuantity > 1) {
-          throw new BusinessRuleError('PLAN_QUANTITY_LIMIT', 'Consumer orders include a single broadband plan.');
-        }
+        rules.assertPlanAllowed(cart, product, sku, newQuantity);
         items = items.filter((i) => i.productType !== PRODUCT_TYPES.PLAN || i.sku === sku);
-        if (cart.serviceability && !cart.serviceability.availablePlanSkus.includes(sku)) {
-          throw new BusinessRuleError(
-            'PLAN_NOT_AVAILABLE_AT_ADDRESS',
-            `${product.name} is not available at your address (max ${cart.serviceability.maxSpeedMbps} Mbps).`,
-          );
-        }
       } else if (product.requiresPlan) {
-        const plan = items.find((i) => i.productType === PRODUCT_TYPES.PLAN);
-        if (!plan) throw new BusinessRuleError('PLAN_REQUIRED', `Add a broadband plan before adding ${product.name}.`);
-        if (product.compatiblePlanSkus.length && !product.compatiblePlanSkus.includes(plan.sku)) {
-          throw new BusinessRuleError('ADDON_INCOMPATIBLE', `${product.name} is not compatible with ${plan.name}.`);
-        }
+        rules.assertAddonAllowed(items, product);
       }
-      if (newQuantity > product.maxQuantity) {
-        throw new BusinessRuleError('MAX_QUANTITY_EXCEEDED', `You can order at most ${product.maxQuantity} of ${product.name}.`, {
-          maxQuantity: product.maxQuantity,
-        });
-      }
-      if (product.stockOnHand != null && product.stockOnHand < newQuantity) {
-        throw new BusinessRuleError('OUT_OF_STOCK', `${product.name} is out of stock.`, { available: product.stockOnHand });
-      }
+      rules.assertQuantityAllowed(product, newQuantity);
 
       if (existing) {
         items = items.map((i) => (i.sku === sku ? { ...itemFromProduct(product, newQuantity), addedAt: i.addedAt } : i));
@@ -233,12 +190,10 @@ function createCartService({
         items.push({ ...itemFromProduct(product, quantity), addedAt: now() });
       }
 
-      const catalogue = await catalogueFor(items);
-      const pruned = pruneIncompatible(items, catalogue);
-      const saved = await save(cart, { items: pruned.items });
+      const { saved, removed } = await saveItems(cart, items);
       const result = await view(saved);
-      if (pruned.removed.length) {
-        result.warnings.push({ code: 'ADDONS_REMOVED', skus: pruned.removed, message: 'Some add-ons were removed because they do not work with the new plan.' });
+      if (removed.length) {
+        result.warnings.push({ code: 'ADDONS_REMOVED', skus: removed, message: 'Some add-ons were removed because they do not work with the new plan.' });
       }
       return result;
     },
@@ -261,9 +216,8 @@ function createCartService({
         }
         items = cart.items.map((i) => (i.sku === sku ? { ...i, quantity } : i));
       }
-      const catalogue = await catalogueFor(items);
-      const pruned = pruneIncompatible(items, catalogue);
-      return view(await save(cart, { items: pruned.items }));
+      const { saved } = await saveItems(cart, items);
+      return view(saved);
     },
 
     async setContractTerm(cartId, { contractTermMonths }, principal, guestToken) {
@@ -294,7 +248,7 @@ function createCartService({
         segment: cart.segment,
         accountId: cart.accountId,
         skus: cart.items.map((i) => i.sku),
-        monthlySubtotal: cart.items.reduce((a, i) => a + i.unitMonthly * i.quantity, 0),
+        monthlySubtotal: rules.monthlySubtotal(cart.items),
         contractTermMonths: cart.contractTermMonths,
       });
       if (!evaluation.ok) throw new BusinessRuleError(evaluation.code, evaluation.message);
@@ -317,20 +271,11 @@ function createCartService({
         if (guest.userId === principal.id) return view(guest);
         throw new ForbiddenError('This cart belongs to another user.');
       }
-      if (!tokensMatch(guestToken, guest.guestToken)) throw new ForbiddenError('A valid cart token is required.');
+      if (!rules.tokensMatch(guestToken, guest.guestToken)) throw new ForbiddenError('A valid cart token is required.');
 
       const existing = await carts.findOpenByUser(principal.id);
       if (existing && existing.segment === guest.segment) {
-        const merged = [...existing.items];
-        for (const item of guest.items) {
-          if (item.productType === PRODUCT_TYPES.PLAN) {
-            const withoutPlan = merged.filter((i) => i.productType !== PRODUCT_TYPES.PLAN);
-            merged.length = 0;
-            merged.push(...withoutPlan, item);
-          } else if (!merged.some((i) => i.sku === item.sku)) {
-            merged.push(item);
-          }
-        }
+        const merged = rules.mergeGuestItems(existing.items, guest.items);
         await carts.updateVersioned(guest.id, guest.version, { status: 'ABANDONED' });
         const saved = await save(existing, {
           items: merged,

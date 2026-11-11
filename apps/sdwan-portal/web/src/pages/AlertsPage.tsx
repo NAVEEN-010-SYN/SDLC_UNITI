@@ -34,7 +34,7 @@ export function AlertsPage() {
     { key: 'type', header: 'Type', render: (a) => humanize(a.type) },
     { key: 'message', header: 'Detail', render: (a) => <Link to={`/edges/${encodeURIComponent(a.edgeId)}`}>{a.message}</Link> },
     { key: 'raised', header: 'Raised', render: (a) => <time dateTime={a.raisedAt} title={formatDateTime(a.raisedAt)}>{formatRelative(a.raisedAt)}</time> },
-    { key: 'count', header: 'Seen', align: 'right', render: (a) => `${a.occurrences}×` },
+    { key: 'count', header: 'Seen', align: 'right', render: (a) => `${a.occurrences}\u00D7` },
     { key: 'status', header: 'Status', render: (a) => <StatusPill value={a.status} label={a.acknowledgedBy ? `Acknowledged by ${a.acknowledgedBy}` : undefined} /> },
     {
       key: 'actions',
@@ -80,7 +80,7 @@ export function AlertsPage() {
         data={alerts.data}
         loading={alerts.loading}
         rowKey={(a) => a.id}
-        emptyMessage={status === 'OPEN' ? 'No open alerts — all edges are healthy' : 'No alerts match these filters'}
+        emptyMessage={status === 'OPEN' ? 'No open alerts \u2014 all edges are healthy' : 'No alerts match these filters'}
         onPageChange={setPage}
         pageSizes={pageSizes}
         onPageSizeChange={setPageSize}

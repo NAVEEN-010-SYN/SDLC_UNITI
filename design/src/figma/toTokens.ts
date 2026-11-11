@@ -1,5 +1,12 @@
 import type { TokenTree, TokenType } from '../tokens';
-import type { FigmaColor, FigmaVariable, FigmaVariableValue, LocalVariablesResponse } from './client';
+import type {
+  FigmaAlias,
+  FigmaColor,
+  FigmaVariable,
+  FigmaVariableCollection,
+  FigmaVariableValue,
+  LocalVariablesResponse,
+} from './client';
 
 /**
  * Converts Figma variables into W3C token trees.
@@ -17,17 +24,25 @@ export interface TokenFiles {
 const CORE = 'core';
 const THEME = 'theme';
 
-const isAlias = (v: FigmaVariableValue): v is { type: 'VARIABLE_ALIAS'; id: string } =>
-  typeof v === 'object' && v !== null && 'type' in v && v.type === 'VARIABLE_ALIAS';
+function isAlias(v: FigmaVariableValue): v is FigmaAlias {
+  return typeof v === 'object' && v !== null && 'type' in v && v.type === 'VARIABLE_ALIAS';
+}
 
-const byte = (n: number) => Math.round(n * 255).toString(16).padStart(2, '0');
+function byte(n: number): string {
+  return Math.round(n * 255).toString(16).padStart(2, '0');
+}
 
 export function figmaColorToHex({ r, g, b, a }: FigmaColor): string {
   return `#${byte(r)}${byte(g)}${byte(b)}${a < 1 ? byte(a) : ''}`;
 }
 
 export function tokenPath(name: string): string[] {
-  return name.split('/').map((s) => s.trim()).filter(Boolean);
+  const parts: string[] = [];
+  for (const part of name.split('/')) {
+    const trimmed = part.trim();
+    if (trimmed) parts.push(trimmed);
+  }
+  return parts;
 }
 
 export function inferType(v: FigmaVariable): TokenType {
@@ -71,23 +86,53 @@ function setIn(tree: TokenTree, path: string[], token: Record<string, unknown>):
   node[path[path.length - 1]] = token;
 }
 
+function findCollection(response: LocalVariablesResponse, label: string): FigmaVariableCollection | undefined {
+  // Last match wins, as with a name-keyed map.
+  let found: FigmaVariableCollection | undefined;
+  for (const c of Object.values(response.meta.variableCollections)) {
+    if (c.name.trim().toLowerCase() === label) found = c;
+  }
+  return found;
+}
+
+function findModeId(theme: FigmaVariableCollection, label: string): string {
+  for (const mode of theme.modes) {
+    if (mode.name.trim().toLowerCase() === label) return mode.modeId;
+  }
+  throw new Error(`Theme collection is missing a "${label}" mode.`);
+}
+
+function toValue(
+  v: FigmaVariable,
+  type: TokenType,
+  raw: FigmaVariableValue,
+  variables: Record<string, FigmaVariable>,
+): unknown {
+  if (!isAlias(raw)) return literal(type, raw, v.name);
+  const target = variables[raw.id];
+  if (!target) throw new Error(`"${v.name}" aliases a variable not in this file (${raw.id}).`);
+  return `{${tokenPath(target.name).join('.')}}`;
+}
+
+function makeToken(
+  v: FigmaVariable,
+  type: TokenType,
+  raw: FigmaVariableValue,
+  variables: Record<string, FigmaVariable>,
+): Record<string, unknown> {
+  const token: Record<string, unknown> = { $type: type, $value: toValue(v, type, raw, variables) };
+  if (v.description) token.$description = v.description;
+  return token;
+}
+
 export function variablesToTokens(response: LocalVariablesResponse): TokenFiles {
-  const { variables, variableCollections } = response.meta;
-  const collectionByName = new Map(
-    Object.values(variableCollections).map((c) => [c.name.trim().toLowerCase(), c]),
-  );
-  const core = collectionByName.get(CORE);
-  const theme = collectionByName.get(THEME);
+  const variables = response.meta.variables;
+  const core = findCollection(response, CORE);
+  const theme = findCollection(response, THEME);
   if (!core || !theme) throw new Error('Figma file must contain "Core" and "Theme" variable collections.');
 
-  const modeId = (label: string) => {
-    const mode = theme.modes.find((m) => m.name.trim().toLowerCase() === label);
-    if (!mode) throw new Error(`Theme collection is missing a "${label}" mode.`);
-    return mode.modeId;
-  };
-  const lightMode = modeId('light');
-  const darkMode = modeId('dark');
-
+  const lightMode = findModeId(theme, 'light');
+  const darkMode = findModeId(theme, 'dark');
   const files: TokenFiles = { core: {}, light: {}, dark: {} };
 
   for (const v of Object.values(variables)) {
@@ -95,26 +140,16 @@ export function variablesToTokens(response: LocalVariablesResponse): TokenFiles 
     const type = inferType(v);
     const path = tokenPath(v.name);
 
-    const toValue = (raw: FigmaVariableValue): unknown => {
-      if (!isAlias(raw)) return literal(type, raw, v.name);
-      const target = variables[raw.id];
-      if (!target) throw new Error(`"${v.name}" aliases a variable not in this file (${raw.id}).`);
-      return `{${tokenPath(target.name).join('.')}}`;
-    };
-    const token = (raw: FigmaVariableValue) => ({
-      $type: type,
-      $value: toValue(raw),
-      ...(v.description ? { $description: v.description } : {}),
-    });
-
     if (v.variableCollectionId === core.id) {
-      setIn(files.core, path, token(v.valuesByMode[core.defaultModeId]));
+      setIn(files.core, path, makeToken(v, type, v.valuesByMode[core.defaultModeId], variables));
     } else if (v.variableCollectionId === theme.id) {
       const light = v.valuesByMode[lightMode];
       const dark = v.valuesByMode[darkMode];
-      setIn(files.light, path, token(light));
+      setIn(files.light, path, makeToken(v, type, light, variables));
       // Dark only records real overrides, keeping theme.dark.tokens.json reviewable.
-      if (JSON.stringify(dark) !== JSON.stringify(light)) setIn(files.dark, path, token(dark));
+      if (JSON.stringify(dark) !== JSON.stringify(light)) {
+        setIn(files.dark, path, makeToken(v, type, dark, variables));
+      }
     }
   }
   return files;

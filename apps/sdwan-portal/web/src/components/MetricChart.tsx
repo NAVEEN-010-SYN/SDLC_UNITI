@@ -25,7 +25,10 @@ export function niceMax(value: number): number {
   if (value <= 0) return 1;
   const exp = 10 ** Math.floor(Math.log10(value));
   const f = value / exp;
-  return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * exp;
+  if (f <= 1) return exp;
+  if (f <= 2) return 2 * exp;
+  if (f <= 5) return 5 * exp;
+  return 10 * exp;
 }
 
 /** Splits points into contiguous runs so missing data shows as a gap, never as a fake straight line. */
@@ -77,7 +80,7 @@ export function MetricChart({ title, points, unit, threshold, bucketSeconds, wid
         {title}
         {threshold !== undefined && (
           <span className={breaches ? 'chart-breach' : 'chart-ok'}>
-            {breaches ? ` · ${breaches} interval(s) over ${threshold}${unit}` : ` · within ${threshold}${unit}`}
+            {breaches ? ` \u00B7 ${breaches} interval(s) over ${threshold}${unit}` : ` \u00B7 within ${threshold}${unit}`}
           </span>
         )}
       </figcaption>
@@ -108,7 +111,7 @@ export function MetricChart({ title, points, unit, threshold, bucketSeconds, wid
         ))}
       </svg>
       <div className="chart-readout" aria-live="polite">
-        {hover ? `${formatDateTime(hover.t)}: ${hover.v}${unit}` : ' '}
+        {hover ? `${formatDateTime(hover.t)}: ${hover.v}${unit}` : '\u00A0'}
       </div>
     </figure>
   );

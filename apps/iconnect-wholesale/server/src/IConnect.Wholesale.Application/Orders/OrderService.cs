@@ -15,8 +15,9 @@ namespace IConnect.Wholesale.Application.Orders;
 /// request is syntax-checked, priced, submitted, and then checked against network inventory so
 /// partners get an immediate accept/reject. Later transitions are driven by support agents
 /// (field operations) or by the partner (cancel, amend).
+/// Split into partial files: this file (placement, queries), OrderService.Inventory.cs, OrderService.Lifecycle.cs.
 /// </summary>
-public sealed class OrderService
+public sealed partial class OrderService
 {
     private readonly IOrderRepository _orders;
     private readonly IPremiseRepository _premises;
@@ -61,7 +62,7 @@ public sealed class OrderService
         var (validated, errors) = OrderRequestValidator.Validate(request, Calendar.LocalDate(now));
         if (validated is null)
         {
-            throw new RequestValidationException(errors.GroupBy(e => e.Field).ToDictionary(g => g.Key, g => g.Select(e => e.Message).ToArray()));
+            throw new RequestValidationException(GroupErrorsByField(errors));
         }
 
         var existing = await _orders.GetByPartnerReferenceAsync(_caller.PartnerId, validated.PartnerReference, ct);
@@ -93,9 +94,9 @@ public sealed class OrderService
         var order = Order.CreateDraft(reference, _caller.PartnerId, request.PartnerReference, request.Type, request.Uprn,
             request.ProductCode, request.CareLevel, request.ExistingServiceId, request.MigrationAuthCode, request.RequestedDate, now);
 
-        if (bulkUploadId is { } bulkId)
+        if (bulkUploadId is not null)
         {
-            order.AttachToBulkUpload(bulkId);
+            order.AttachToBulkUpload(bulkUploadId.Value);
         }
 
         if (request.Type != OrderType.Cease)
@@ -119,96 +120,12 @@ public sealed class OrderService
         return order;
     }
 
-    /// <summary>Returns a rejection reason, or null when the order can be accepted.</summary>
-    internal async Task<string?> CheckInventoryAsync(Order order, CancellationToken ct)
-    {
-        var partner = await _partners.GetAsync(order.PartnerId, ct);
-        if (partner is null || !partner.CanTrade)
-        {
-            return "Partner account is not active for trading.";
-        }
-
-        if (await _orders.CountOpenAsync(order.PartnerId, ct) >= partner.MaxOpenOrders)
-        {
-            return $"Partner has reached its limit of {partner.MaxOpenOrders} open orders.";
-        }
-
-        var premise = await _premises.GetByUprnAsync(order.Uprn, ct);
-        if (premise is null)
-        {
-            return $"UPRN {order.Uprn} is not on the network.";
-        }
-
-        if (!premise.IsOrderable(order.RequestedDate))
-        {
-            return premise.BuildStatus == PremiseBuildStatus.PlannedBuild
-                ? $"Premise is not ready for service until {premise.ReadyForServiceDate:yyyy-MM-dd}."
-                : "Premise is not serviceable.";
-        }
-
-        if (await _orders.HasOpenOrderForUprnAsync(order.Uprn, ct))
-        {
-            return "Another order is already in flight for this premise.";
-        }
-
-        if (order.ProductCode is { } code)
-        {
-            var product = await _catalogue.GetProductAsync(code, ct);
-            if (product is null)
-            {
-                return $"Product {code} does not exist.";
-            }
-
-            if (product.DownstreamMbps > premise.MaxDownstreamMbps)
-            {
-                return $"Product {code} exceeds the premise capability of {premise.MaxDownstreamMbps} Mbps.";
-            }
-        }
-
-        var activeAtPremise = await _services.GetActiveByUprnAsync(order.Uprn, ct);
-        switch (order.Type)
-        {
-            case OrderType.Provide when activeAtPremise is not null:
-                return activeAtPremise.PartnerId == order.PartnerId
-                    ? "You already have an active service at this premise; place a modify order instead."
-                    : "Another provider has an active service at this premise; place a migrate order instead.";
-            case OrderType.Migrate when activeAtPremise is null:
-                return "There is no active service to migrate at this premise; place a provide order instead.";
-            case OrderType.Migrate when activeAtPremise!.PartnerId == order.PartnerId:
-                return "You cannot migrate a service you already own.";
-            case OrderType.Cease or OrderType.Modify:
-                var service = order.ExistingServiceId is { } id ? await _services.GetAsync(id, ct) : null;
-                if (service is null || service.PartnerId != order.PartnerId)
-                {
-                    return "The referenced service does not exist on your account.";
-                }
-
-                if (!service.IsActive)
-                {
-                    return "The referenced service has already been ceased.";
-                }
-
-                if (service.Uprn != order.Uprn)
-                {
-                    return "The referenced service is not at the ordered UPRN.";
-                }
-
-                if (order.Type == OrderType.Modify && service.ProductCode == order.ProductCode && service.CareLevel == order.CareLevel)
-                {
-                    return "The service already has the requested product and care level.";
-                }
-
-                break;
-        }
-
-        return null;
-    }
-
     public async Task<PagedResult<OrderSummaryDto>> ListAsync(OrderStatus? status, OrderType? type, string? search,
         DateOnly? from, DateOnly? to, PageRequest page, CancellationToken ct)
     {
         var now = _clock.UtcNow;
-        var result = await _orders.QueryAsync(new OrderQuery(_caller.PartnerId, status, type, search?.Trim(), from, to, page), ct);
+        var query = new OrderQuery(_caller.PartnerId, status, type, search?.Trim(), from, to, page);
+        var result = await _orders.QueryAsync(query, ct);
         return result.Map(o => OrderMapping.ToSummary(o, Calendar, now));
     }
 
@@ -218,149 +135,15 @@ public sealed class OrderService
         return OrderMapping.ToDetail(order, Calendar, _clock.UtcNow, _caller.IsSupportAgent);
     }
 
-    public Task<OrderDetailDto> CancelAsync(Guid id, CancelOrderRequest request, CancellationToken ct) =>
-        MutateAsync(id, async (order, now) =>
-        {
-            RequireText(request.Reason, "reason");
-            order.Cancel(now, request.Reason.Trim(), _caller.ActorId);
-            await ReleaseSlotAsync(order, ct);
-        }, ct);
-
-    public Task<OrderDetailDto> AmendAsync(Guid id, AmendOrderRequest request, CancellationToken ct) =>
-        MutateAsync(id, (order, now) =>
-        {
-            var today = Calendar.LocalDate(now);
-            if (request.RequestedDate <= today || request.RequestedDate > today.AddDays(OrderRequestValidator.MaxRequestedDateHorizonDays))
-            {
-                throw new RequestValidationException("requestedDate", "Requested date must be in the future and within the booking horizon.");
-            }
-
-            order.AmendRequestedDate(request.RequestedDate);
-            return Task.CompletedTask;
-        }, ct);
-
-    public Task<OrderDetailDto> HoldAsync(Guid id, HoldOrderRequest request, CancellationToken ct) =>
-        SupportMutateAsync(id, (order, now) =>
-        {
-            RequireText(request.Reason, "reason");
-            order.PlaceOnHold(now, request.Reason.Trim(), _caller.ActorId);
-            return Task.CompletedTask;
-        }, ct);
-
-    public Task<OrderDetailDto> ReleaseHoldAsync(Guid id, CancellationToken ct) =>
-        SupportMutateAsync(id, (order, now) =>
-        {
-            order.ReleaseHold(now, _caller.ActorId);
-            return Task.CompletedTask;
-        }, ct);
-
-    public Task<OrderDetailDto> StartProvisioningAsync(Guid id, CancellationToken ct) =>
-        SupportMutateAsync(id, async (order, now) =>
-        {
-            if (order.AppointmentSlotId is { } slotId)
-            {
-                var slot = await _slots.GetAsync(slotId, ct) ?? throw new NotFoundException("AppointmentSlot", slotId);
-                slot.Confirm(order.Id, now);
-            }
-
-            order.StartProvisioning(now, _caller.ActorId);
-        }, ct);
-
-    public Task<OrderDetailDto> RejectAsync(Guid id, RejectOrderRequest request, CancellationToken ct) =>
-        SupportMutateAsync(id, async (order, now) =>
-        {
-            RequireText(request.Reason, "reason");
-            order.Reject(now, request.Reason.Trim(), _caller.ActorId);
-            await ReleaseSlotAsync(order, ct);
-        }, ct);
-
-    /// <summary>Completes the order and applies it to the service inventory.</summary>
-    public Task<OrderDetailDto> CompleteAsync(Guid id, CompleteOrderRequest request, CancellationToken ct) =>
-        SupportMutateAsync(id, async (order, now) =>
-        {
-            if (request.CompletedDate > Calendar.LocalDate(now))
-            {
-                throw new RequestValidationException("completedDate", "Completion date cannot be in the future.");
-            }
-
-            var serviceId = await ApplyToInventoryAsync(order, request.CompletedDate, ct);
-            order.Complete(now, request.CompletedDate, serviceId, _caller.ActorId);
-        }, ct);
-
-    private async Task<Guid?> ApplyToInventoryAsync(Order order, DateOnly completedDate, CancellationToken ct)
-    {
-        var premise = await _premises.GetByUprnAsync(order.Uprn, ct) ?? throw new NotFoundException("Premise", order.Uprn);
-        switch (order.Type)
-        {
-            case OrderType.Provide:
-            {
-                var reference = await _references.NextAsync("SVC", ct);
-                var service = new WholesaleService(reference, order.PartnerId, order.Uprn, order.ProductCode!, order.CareLevel,
-                    order.MonthlyRental!.Value, completedDate);
-                await _services.AddAsync(service, ct);
-                premise.MarkServiceActive(true);
-                return service.Id;
-            }
-
-            case OrderType.Cease:
-            {
-                var service = await _services.GetAsync(order.ExistingServiceId!.Value, ct) ?? throw new NotFoundException("Service", order.ExistingServiceId);
-                service.Cease(completedDate);
-                premise.MarkServiceActive(false);
-                return service.Id;
-            }
-
-            case OrderType.Modify:
-            {
-                var service = await _services.GetAsync(order.ExistingServiceId!.Value, ct) ?? throw new NotFoundException("Service", order.ExistingServiceId);
-                service.ChangeProduct(order.ProductCode!, order.CareLevel, order.MonthlyRental!.Value, completedDate);
-                return service.Id;
-            }
-
-            case OrderType.Migrate:
-            {
-                var service = await _services.GetActiveByUprnAsync(order.Uprn, ct)
-                    ?? throw new ConflictException("order.nothing_to_migrate", "No active service remains at the premise to migrate.");
-                service.TransferTo(order.PartnerId, order.ProductCode!, order.CareLevel, order.MonthlyRental!.Value, completedDate);
-                return service.Id;
-            }
-
-            default:
-                throw new DomainException("order.unknown_type", $"Unsupported order type {order.Type}.");
-        }
-    }
-
-    private async Task ReleaseSlotAsync(Order order, CancellationToken ct)
-    {
-        if (order.ReleaseAppointment() is { } slotId && await _slots.GetAsync(slotId, ct) is { } slot)
-        {
-            slot.Release(order.Id);
-        }
-    }
-
-    private Task<OrderDetailDto> SupportMutateAsync(Guid id, Func<Order, DateTimeOffset, Task> action, CancellationToken ct)
-    {
-        if (!_caller.IsSupportAgent)
-        {
-            throw new ForbiddenException("Only support agents can perform this action.");
-        }
-
-        return MutateAsync(id, action, ct);
-    }
-
-    private async Task<OrderDetailDto> MutateAsync(Guid id, Func<Order, DateTimeOffset, Task> action, CancellationToken ct)
-    {
-        var order = await LoadOwnedAsync(id, ct);
-        var now = _clock.UtcNow;
-        await action(order, now);
-        await _uow.SaveChangesAsync(ct);
-        return OrderMapping.ToDetail(order, Calendar, now, _caller.IsSupportAgent);
-    }
-
     internal async Task<Order> LoadOwnedAsync(Guid id, CancellationToken ct)
     {
         var order = await _orders.GetAsync(id, ct);
-        if (order is null || (!_caller.IsSupportAgent && order.PartnerId != _caller.PartnerId))
+        if (order is null)
+        {
+            throw new NotFoundException("Order", id);
+        }
+
+        if (!_caller.IsSupportAgent && order.PartnerId != _caller.PartnerId)
         {
             throw new NotFoundException("Order", id);
         }
@@ -368,19 +151,36 @@ public sealed class OrderService
         return order;
     }
 
-    private static bool IsSameRequest(Order existing, ValidatedOrderRequest request) =>
-        existing.Type == request.Type
-        && existing.Uprn == request.Uprn
-        && existing.ProductCode == request.ProductCode
-        && existing.CareLevel == request.CareLevel
-        && existing.ExistingServiceId == request.ExistingServiceId
-        && existing.RequestedDate == request.RequestedDate;
-
-    private static void RequireText(string? value, string field)
+    private static Dictionary<string, string[]> GroupErrorsByField(IReadOnlyList<FieldError> errors)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Trim().Length < 5)
+        var grouped = new Dictionary<string, List<string>>();
+        foreach (var error in errors)
         {
-            throw new RequestValidationException(field, "Provide at least 5 characters.");
+            if (!grouped.TryGetValue(error.Field, out var messages))
+            {
+                messages = new List<string>();
+                grouped[error.Field] = messages;
+            }
+
+            messages.Add(error.Message);
         }
+
+        var result = new Dictionary<string, string[]>();
+        foreach (var pair in grouped)
+        {
+            result[pair.Key] = pair.Value.ToArray();
+        }
+
+        return result;
+    }
+
+    private static bool IsSameRequest(Order existing, ValidatedOrderRequest request)
+    {
+        return existing.Type == request.Type
+            && existing.Uprn == request.Uprn
+            && existing.ProductCode == request.ProductCode
+            && existing.CareLevel == request.CareLevel
+            && existing.ExistingServiceId == request.ExistingServiceId
+            && existing.RequestedDate == request.RequestedDate;
     }
 }

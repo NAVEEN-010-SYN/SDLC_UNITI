@@ -64,7 +64,7 @@ public static class QueryParsing
 
     public static void EnsureRange(DateOnly? from, DateOnly? to, string fromField = "from")
     {
-        if (from is { } f && to is { } t && t < f)
+        if (from.HasValue && to.HasValue && to.Value < from.Value)
         {
             throw new RequestValidationException(fromField, "The start of the range must not be after its end.");
         }

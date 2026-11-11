@@ -36,14 +36,7 @@ public struct TicketsView: View {
             AsyncContentView(state: viewModel.state, emptyTitle: L10n.string("tickets.empty"), emptySymbol: "bubble.left.and.bubble.right",
                              retry: { Task { await viewModel.load() } }) { _ in
                 ForEach(viewModel.sections) { section in
-                    Section(L10n.string(section.titleKey)) {
-                        ForEach(section.tickets) { ticket in
-                            NavigationLink(value: DeepLink.ticket(id: ticket.id).route) {
-                                TicketRow(ticket: ticket, updatedText: dateFormatter.shortDate(ticket.updatedAt))
-                            }
-                            .task { await viewModel.loadMoreIfNeeded(current: ticket) }
-                        }
-                    }
+                    ticketSection(section)
                 }
                 if viewModel.isLoadingMore { ProgressView().frame(maxWidth: .infinity) }
             }
@@ -63,6 +56,17 @@ public struct TicketsView: View {
             }
         }
     }
+
+    private func ticketSection(_ section: TicketsViewModel.Section) -> some View {
+        Section(L10n.string(section.titleKey)) {
+            ForEach(section.tickets) { ticket in
+                NavigationLink(value: DeepLink.ticket(id: ticket.id).route) {
+                    TicketRow(ticket: ticket, updatedText: dateFormatter.shortDate(ticket.updatedAt))
+                }
+                .task { await viewModel.loadMoreIfNeeded(current: ticket) }
+            }
+        }
+    }
 }
 
 struct TicketRow: View {
@@ -76,7 +80,7 @@ struct TicketRow: View {
                 Spacer()
                 StatusBadge(L10n.string("ticket.status.\(ticket.status.rawValue.lowercased())"), tone: ticket.status.tone)
             }
-            Text("\(ticket.reference) · \(ticket.priority.rawValue) · \(updatedText)")
+            Text("\(ticket.reference) \u{00B7} \(ticket.priority.rawValue) \u{00B7} \(updatedText)")
                 .font(.footnote).foregroundStyle(.secondary)
         }
         .accessibilityElement(children: .combine)
@@ -187,7 +191,7 @@ struct CommentBubble: View {
                     .padding(Theme.Spacing.m)
                     .background(comment.isFromCustomer ? Theme.Palette.brand.opacity(0.15) : Theme.Palette.surface,
                                 in: RoundedRectangle(cornerRadius: Theme.Radius.card))
-                Text(isPending ? L10n.string("ticket.sending") : [comment.author, timestamp].filter { !$0.isEmpty }.joined(separator: " · "))
+                Text(isPending ? L10n.string("ticket.sending") : [comment.author, timestamp].filter { !$0.isEmpty }.joined(separator: " \u{00B7} "))
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .opacity(isPending ? 0.6 : 1)

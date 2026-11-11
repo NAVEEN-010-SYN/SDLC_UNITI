@@ -83,26 +83,7 @@ export class UsersService {
       if (seats >= MAX_USERS_PER_ACCOUNT) {
         throw new BusinessRuleError('seat-limit', `This account has reached its limit of ${MAX_USERS_PER_ACCOUNT} users`);
       }
-      const created = existing
-        ? await this.repo.update(ctx.accountId, existing.id, existing.version, {
-            status: 'INVITED',
-            role: input.role,
-            siteScope,
-            firstName: input.firstName,
-            lastName: input.lastName
-          }, tx)
-        : await this.repo.insert(
-            {
-              accountId: ctx.accountId,
-              email: input.email,
-              firstName: input.firstName,
-              lastName: input.lastName,
-              role: input.role,
-              siteScope,
-              invitedBy: ctx.userId
-            },
-            tx
-          );
+      const created = await this.saveInvitedUser(ctx, input, siteScope, existing, tx);
       await this.audit.record(
         {
           accountId: ctx.accountId,
@@ -200,6 +181,38 @@ export class UsersService {
       entity: 'user',
       entityId: userId
     });
+  }
+
+  /** Re-invites a previously deactivated user, or inserts a new one. */
+  private async saveInvitedUser(
+    ctx: AuthContext,
+    input: InviteUserInput,
+    siteScope: string[] | null,
+    existing: BusinessUser | null,
+    tx: Db
+  ): Promise<BusinessUser> {
+    if (existing) {
+      const patch: UserPatch = {
+        status: 'INVITED',
+        role: input.role,
+        siteScope,
+        firstName: input.firstName,
+        lastName: input.lastName
+      };
+      return this.repo.update(ctx.accountId, existing.id, existing.version, patch, tx);
+    }
+    return this.repo.insert(
+      {
+        accountId: ctx.accountId,
+        email: input.email,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        role: input.role,
+        siteScope,
+        invitedBy: ctx.userId
+      },
+      tx
+    );
   }
 
   private async requireUser(accountId: string, userId: string, db?: Db): Promise<BusinessUser> {

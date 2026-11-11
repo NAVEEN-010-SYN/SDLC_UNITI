@@ -154,12 +154,15 @@ final class SslCertificateService
     {
         $days = $certificate->daysUntilExpiry($this->now());
 
-        $state = match (true) {
-            $certificate->status !== CertificateStatus::Issued => $certificate->status->value,
-            $days !== null && $days < 0 => 'EXPIRED',
-            $days !== null && $days <= $this->renewalWindowDays => 'EXPIRING_SOON',
-            default => 'VALID',
-        };
+        if ($certificate->status !== CertificateStatus::Issued) {
+            $state = $certificate->status->value;
+        } elseif ($days !== null && $days < 0) {
+            $state = 'EXPIRED';
+        } elseif ($days !== null && $days <= $this->renewalWindowDays) {
+            $state = 'EXPIRING_SOON';
+        } else {
+            $state = 'VALID';
+        }
 
         return ['state' => $state, 'daysRemaining' => $days];
     }
@@ -171,15 +174,21 @@ final class SslCertificateService
     public function normaliseNames(HostedDomain $domain, string $commonName, array $sans): array
     {
         $commonName = Hostname::normalise($commonName);
-        $all = array_values(array_unique(array_map([Hostname::class, 'normalise'], $sans)));
-        $all = array_values(array_diff($all, [$commonName]));
+        $all = [];
+        foreach ($sans as $san) {
+            $san = Hostname::normalise($san);
+            if ($san !== $commonName && !in_array($san, $all, true)) {
+                $all[] = $san;
+            }
+        }
         sort($all);
 
         if (count($all) > $this->maxSans) {
             throw ValidationFailedException::forField('subject_alt_names', sprintf('At most %d additional names are allowed.', $this->maxSans));
         }
 
-        foreach ([$commonName, ...$all] as $i => $name) {
+        $names = array_merge([$commonName], $all);
+        foreach ($names as $i => $name) {
             $field = $i === 0 ? 'common_name' : 'subject_alt_names.' . ($i - 1);
             if (!Hostname::isValid($name, allowWildcard: true)) {
                 throw ValidationFailedException::forField($field, 'Not a valid hostname.');
@@ -189,7 +198,7 @@ final class SslCertificateService
             }
         }
 
-        return [$commonName, ...$all];
+        return $names;
     }
 
     /**
@@ -234,19 +243,7 @@ final class SslCertificateService
         $result = $this->ca->finalise((string) $certificate->order_ref);
 
         if ($result['status'] === 'valid') {
-            $certificate->fill([
-                'status' => CertificateStatus::Issued,
-                'issuer' => $result['issuer'],
-                'serial_number' => $result['serialNumber'],
-                'not_before' => $result['notBefore'],
-                'not_after' => $result['notAfter'],
-            ])->save();
-
-            $this->hosting->installCertificate((string) $domain->external_ref, (string) $certificate->order_ref);
-            $this->cleanupChallenges($certificate);
-            $this->retirePredecessor($certificate);
-
-            Log::info('ssl.issued', ['certificateId' => $certificate->id, 'notAfter' => $result['notAfter']?->toIso8601ZuluString()]);
+            $this->markIssued($certificate, $domain, $result);
 
             return;
         }
@@ -254,6 +251,27 @@ final class SslCertificateService
         if ($result['status'] === 'invalid') {
             $this->fail($certificate, $result['error'] ?? 'The certificate authority rejected the order.');
         }
+    }
+
+    /**
+     * @param array<string, mixed> $result Finalise result from the CA.
+     */
+    private function markIssued(SslCertificate $certificate, HostedDomain $domain, array $result): void
+    {
+        $certificate->fill([
+            'status' => CertificateStatus::Issued,
+            'issuer' => $result['issuer'],
+            'serial_number' => $result['serialNumber'],
+            'not_before' => $result['notBefore'],
+            'not_after' => $result['notAfter'],
+        ])->save();
+
+        $this->hosting->installCertificate((string) $domain->external_ref, (string) $certificate->order_ref);
+        $this->cleanupChallenges($certificate);
+        $this->retirePredecessor($certificate);
+
+        $notAfter = $result['notAfter'] === null ? null : $result['notAfter']->toIso8601ZuluString();
+        Log::info('ssl.issued', ['certificateId' => $certificate->id, 'notAfter' => $notAfter]);
     }
 
     private function fail(SslCertificate $certificate, string $reason): void

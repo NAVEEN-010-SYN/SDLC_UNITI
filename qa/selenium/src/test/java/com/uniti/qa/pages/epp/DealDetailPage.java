@@ -2,9 +2,11 @@ package com.uniti.qa.pages.epp;
 
 import com.uniti.qa.pages.BasePage;
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.List;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 
 /**
  * Deal detail: summary, activity timeline and the withdraw action.
@@ -44,7 +46,11 @@ public final class DealDetailPage extends BasePage {
 
     public List<String> timeline() {
         waits.click(ACTIVITY_TAB);
-        return waits.allVisible(TIMELINE_ITEMS).stream().map(e -> e.getText().trim()).toList();
+        List<String> items = new ArrayList<>();
+        for (WebElement item : waits.allVisible(TIMELINE_ITEMS)) {
+            items.add(item.getText().trim());
+        }
+        return items;
     }
 
     public void withdraw(String reason) {

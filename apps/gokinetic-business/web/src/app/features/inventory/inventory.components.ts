@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
 import { toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
-import { catchError, map, of, switchMap } from 'rxjs';
+import { Observable, catchError, map, of, switchMap } from 'rxjs';
 import { InventoryApi, ServiceFilter, SiteFilter } from '../../core/api/portal-api';
 import { AuthService } from '../../core/auth/auth.service';
 import { ApiProblem } from '../../core/http/api-problem';
@@ -17,7 +17,7 @@ const SERVICE_STATUSES: ServiceStatus[] = ['PENDING', 'ACTIVE', 'SUSPENDED', 'CE
 const CATEGORIES: ServiceCategory[] = ['BROADBAND', 'VOICE', 'SDWAN', 'HOSTED'];
 
 export function formatBandwidth(mbps: number | null): string {
-  if (!mbps) return '—';
+  if (!mbps) return '\u2014';
   return mbps >= 1000 ? `${mbps / 1000} Gbps` : `${mbps} Mbps`;
 }
 
@@ -86,7 +86,7 @@ export class SitesListComponent {
   imports: [StatusBadgeComponent, MoneyPipe, ProblemAlertComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a routerLink="/inventory">← Sites</a>
+    <a routerLink="/inventory">\u2190 Sites</a>
     <gkb-problem-alert [problem]="problem()" />
     @if (site(); as s) {
       <header class="page-header">
@@ -124,18 +124,20 @@ export class SiteDetailComponent {
   readonly canOrder = computed(() => this.auth.can('orders:create'));
   readonly bandwidth = formatBandwidth;
 
-  private readonly state = toSignal(
-    toObservable(this.id).pipe(
-      switchMap((id) =>
-        this.api.site(id).pipe(
-          map((site) => ({ site: site as SiteDetail | null, problem: null as ApiProblem | null })),
-          catchError((problem: ApiProblem) => of({ site: null as SiteDetail | null, problem }))
-        )
-      )
-    )
-  );
+  private readonly state = toSignal(toObservable(this.id).pipe(switchMap((id) => this.loadSite(id))));
   readonly site = computed(() => this.state()?.site ?? null);
   readonly problem = computed(() => this.state()?.problem ?? null);
+
+  /** Loads one site; a failure becomes a problem instead of an error. */
+  private loadSite(id: string): Observable<SiteLoadState> {
+    const loaded$ = this.api.site(id).pipe(map((site): SiteLoadState => ({ site, problem: null })));
+    return loaded$.pipe(catchError((problem: ApiProblem) => of<SiteLoadState>({ site: null, problem })));
+  }
+}
+
+interface SiteLoadState {
+  site: SiteDetail | null;
+  problem: ApiProblem | null;
 }
 
 @Component({
@@ -144,7 +146,7 @@ export class SiteDetailComponent {
   imports: [DataTableComponent, CellDirective, StatusBadgeComponent, MoneyPipe, ProblemAlertComponent, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <a routerLink="/inventory">← Sites</a>
+    <a routerLink="/inventory">\u2190 Sites</a>
     <h1>Services</h1>
     <form class="filters">
       <label>Category

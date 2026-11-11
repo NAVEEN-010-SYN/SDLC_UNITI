@@ -3,10 +3,10 @@
 Self-care analytics: orders, billing, support SLAs, ARPU and churn.
 
 ```
-S3 landing (NDJSON CDC) ──Snowpipe──> UNITI_RAW.<source>.*_CDC      append-only
-                         ──stream+task──> UNITI_RAW.<source>.*_CURRENT  latest state per key
-                         ──dbt staging──> UNITI_ANALYTICS.STAGING      typed, renamed, enum-normalised
-                         ──dbt marts────> UNITI_ANALYTICS.MARTS        facts, dims, finance marts
+S3 landing (NDJSON CDC) --Snowpipe--> UNITI_RAW.<source>.*_CDC      append-only
+                         --stream+task--> UNITI_RAW.<source>.*_CURRENT  latest state per key
+                         --dbt staging--> UNITI_ANALYTICS.STAGING      typed, renamed, enum-normalised
+                         --dbt marts----> UNITI_ANALYTICS.MARTS        facts, dims, finance marts
 ```
 
 ## Setup (run once per environment, in order)
@@ -31,7 +31,7 @@ dbt source freshness                       # CDC lag vs. thresholds in _sources.
 
 Models
 
-- **Staging** (views): one per source entity; `enum_code()` normalises `PendingCustomer` → `PENDING_CUSTOMER`; `minor_units()` fails the build on any fractional money.
+- **Staging** (views): one per source entity; `enum_code()` normalises `PendingCustomer` -> `PENDING_CUSTOMER`; `minor_units()` fails the build on any fractional money.
 - **Core marts**: `dim_date`, `dim_account` (conformed on `ACC-########`), `dim_product` (type 2 from daily catalogue snapshots), `fact_orders` (eCom + iConnect), `fact_invoices`, `fact_payments` (incremental on CDC merge time), `fact_tickets` (first-response and resolution SLA with PENDING_CUSTOMER pauses; targets in `seeds/ticket_sla_targets.csv`).
 - **Finance marts**: `mart_arpu_monthly`, `mart_churn_monthly` (logo churn with a `churn_grace_days` re-connect window, rates in basis points).
 
@@ -39,5 +39,5 @@ Models
 
 - Money is `NUMBER(38,0)` minor units with a sibling `currency` column. Never aggregate across currencies.
 - Timestamps are `TIMESTAMP_TZ` UTC; `*_date_key` is `YYYYMMDD` into `dim_date`.
-- PII columns declare `meta.pii_class` in `_marts.yml`; the post-hook tags them and the tag masks them. Adding a PII column without the meta leaves it unmasked — reviewers check this.
+- PII columns declare `meta.pii_class` in `_marts.yml`; the post-hook tags them and the tag masks them. Adding a PII column without the meta leaves it unmasked - reviewers check this.
 - Every mart with a `segment` column gets the `RAP_SEGMENT` row access policy. Grant segment access by inserting into `GOVERNANCE.SEGMENT_ENTITLEMENTS`, not by creating new policies.

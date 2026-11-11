@@ -43,9 +43,10 @@ public class InvoicesAndUsersTest extends BaseTest {
         InvoicesPage invoices = new InvoicesPage(driver(), uconnectUrl()).load();
         int total = invoices.totalInvoices();
 
-        List<String> seen = new ArrayList<>(invoices.rows().stream().map(InvoiceRow::invoiceId).toList());
+        List<String> seen = new ArrayList<>();
+        addInvoiceIds(seen, invoices.rows());
         while (invoices.hasNextPage()) {
-            seen.addAll(invoices.nextPage().rows().stream().map(InvoiceRow::invoiceId).toList());
+            addInvoiceIds(seen, invoices.nextPage().rows());
         }
         assertThat(seen).hasSize(total).doesNotHaveDuplicates();
     }
@@ -75,5 +76,11 @@ public class InvoicesAndUsersTest extends BaseTest {
     public void businessUserDenied() {
         signInToUconnect("business_user");
         assertThat(new UsersPage(driver(), uconnectUrl()).load().isAccessDenied()).isTrue();
+    }
+
+    private static void addInvoiceIds(List<String> target, List<InvoiceRow> rows) {
+        for (InvoiceRow row : rows) {
+            target.add(row.invoiceId());
+        }
     }
 }

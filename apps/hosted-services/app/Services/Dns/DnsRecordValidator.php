@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Services\Dns;
 
 use App\Enums\DnsRecordType;
-use App\Exceptions\BusinessRuleException;
 use App\Exceptions\ValidationFailedException;
 use App\Support\Hostname;
 
@@ -17,17 +16,23 @@ use App\Support\Hostname;
  * Syntax problems raise ValidationFailedException (400, field errors).
  * Zone conflicts (CNAME coexistence, duplicate SPF, record limit) raise
  * BusinessRuleException (422) with a stable rule code.
+ *
+ * Value checks live in DnsValueNormaliser, zone checks in DnsZoneConflictChecker.
  */
 final class DnsRecordValidator
 {
     public const TXT_MAX_TOTAL_LENGTH = 4000;
-    private const CAA_TAGS = ['issue', 'issuewild', 'iodef'];
+
+    private DnsValueNormaliser $values;
+    private DnsZoneConflictChecker $conflicts;
 
     public function __construct(
         private readonly int $ttlMin = 60,
         private readonly int $ttlMax = 86400,
         private readonly int $maxRecordsPerZone = 500,
     ) {
+        $this->values = new DnsValueNormaliser();
+        $this->conflicts = new DnsZoneConflictChecker($this->maxRecordsPerZone);
     }
 
     /**
@@ -49,7 +54,7 @@ final class DnsRecordValidator
             $errors['ttl'][] = sprintf('TTL must be between %d and %d seconds.', $this->ttlMin, $this->ttlMax);
         }
 
-        [$value, $valueErrors] = $this->checkValue($record, $name, $zone);
+        [$value, $valueErrors] = $this->values->check($record, $name);
         foreach ($valueErrors as $field => $messages) {
             foreach ($messages as $message) {
                 $errors[$field][] = $message;
@@ -61,12 +66,15 @@ final class DnsRecordValidator
         }
 
         $normalised = $record->with($name, $value);
-        $others = array_values(array_filter(
-            $existing,
-            static fn (DnsRecordData $r) => $ignoreId === null || $r->id !== $ignoreId,
-        ));
 
-        $this->checkZoneConflicts($normalised, $zone, $others, $ignoreId === null);
+        $others = [];
+        foreach ($existing as $other) {
+            if ($ignoreId === null || $other->id !== $ignoreId) {
+                $others[] = $other;
+            }
+        }
+
+        $this->conflicts->check($normalised, $zone, $others, $ignoreId === null);
 
         return $normalised;
     }
@@ -90,239 +98,23 @@ final class DnsRecordValidator
             return 'Apex NS records are managed by Uniti and cannot be changed.';
         }
 
-        if ($type === DnsRecordType::SRV) {
-            $labels = explode('.', Hostname::relativise($name, $zone));
-            if (count($labels) < 2 || !str_starts_with($labels[0], '_') || !in_array($labels[1], ['_tcp', '_udp', '_tls'], true)) {
-                return 'SRV names must take the form _service._proto, e.g. _sip._tcp.';
-            }
+        if ($type === DnsRecordType::SRV && !$this->isSrvName($name, $zone)) {
+            return 'SRV names must take the form _service._proto, e.g. _sip._tcp.';
         }
 
         return null;
     }
 
-    /**
-     * @return array{0: string, 1: array<string, list<string>>}
-     */
-    private function checkValue(DnsRecordData $record, string $name, string $zone): array
+    private function isSrvName(string $name, string $zone): bool
     {
-        $value = trim($record->value);
-        $errors = [];
-
-        if ($record->type->requiresPriority()) {
-            if ($record->priority === null) {
-                $errors['priority'][] = 'Priority is required for ' . $record->type->value . ' records.';
-            } elseif (!$this->isUint16($record->priority)) {
-                $errors['priority'][] = 'Priority must be between 0 and 65535.';
-            }
+        $labels = explode('.', Hostname::relativise($name, $zone));
+        if (count($labels) < 2) {
+            return false;
+        }
+        if (!str_starts_with($labels[0], '_')) {
+            return false;
         }
 
-        switch ($record->type) {
-            case DnsRecordType::A:
-                if (filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_RES_RANGE) === false) {
-                    $errors['value'][] = 'Value must be a public IPv4 address.';
-                }
-                break;
-
-            case DnsRecordType::AAAA:
-                if (filter_var($value, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_RES_RANGE) === false) {
-                    $errors['value'][] = 'Value must be a public IPv6 address.';
-                } else {
-                    $value = strtolower((string) inet_ntop((string) inet_pton($value)));
-                }
-                break;
-
-            case DnsRecordType::CNAME:
-            case DnsRecordType::NS:
-                $value = Hostname::normalise($value);
-                $error = $this->checkTargetHostname($value);
-                if ($error !== null) {
-                    $errors['value'][] = $error;
-                } elseif ($value === $name) {
-                    $errors['value'][] = 'A record cannot point at itself.';
-                }
-                break;
-
-            case DnsRecordType::MX:
-                $value = Hostname::normalise($value);
-                // RFC 7505 null MX: "." with priority 0 declares the domain accepts no mail.
-                if ($value === '') {
-                    if ($record->priority !== 0) {
-                        $errors['priority'][] = 'A null MX record must have priority 0.';
-                    }
-                    $value = '.';
-                    break;
-                }
-                $error = $this->checkTargetHostname($value);
-                if ($error !== null) {
-                    $errors['value'][] = $error;
-                }
-                break;
-
-            case DnsRecordType::SRV:
-                foreach (['weight' => $record->weight, 'port' => $record->port] as $field => $number) {
-                    if ($number === null || !$this->isUint16($number)) {
-                        $errors[$field][] = ucfirst($field) . ' must be between 0 and 65535.';
-                    }
-                }
-                $value = Hostname::normalise($value);
-                if ($value === '') {
-                    $value = '.';
-                } else {
-                    $error = $this->checkTargetHostname($value);
-                    if ($error !== null) {
-                        $errors['value'][] = $error;
-                    }
-                }
-                break;
-
-            case DnsRecordType::TXT:
-                [$value, $error] = $this->normaliseTxt($value);
-                if ($error !== null) {
-                    $errors['value'][] = $error;
-                }
-                break;
-
-            case DnsRecordType::CAA:
-                [$value, $error] = $this->normaliseCaa($value);
-                if ($error !== null) {
-                    $errors['value'][] = $error;
-                }
-                break;
-        }
-
-        return [$value, $errors];
-    }
-
-    private function checkTargetHostname(string $target): ?string
-    {
-        if (filter_var($target, FILTER_VALIDATE_IP) !== false) {
-            return 'Target must be a hostname, not an IP address.';
-        }
-
-        if (!Hostname::isValid($target, allowWildcard: false, allowUnderscore: true)) {
-            return 'Target is not a valid hostname.';
-        }
-
-        if (!str_contains($target, '.')) {
-            return 'Target must be a fully qualified hostname.';
-        }
-
-        return null;
-    }
-
-    /**
-     * Strip wrapping quotes (users paste values from registrar UIs) and
-     * enforce printable ASCII. Long values are split into 255-byte strings
-     * by the zone serializer, not here.
-     *
-     * @return array{0: string, 1: string|null}
-     */
-    private function normaliseTxt(string $value): array
-    {
-        if (strlen($value) >= 2 && $value[0] === '"' && str_ends_with($value, '"')) {
-            $value = substr($value, 1, -1);
-        }
-        $value = str_replace('" "', '', $value);
-
-        if ($value === '') {
-            return [$value, 'TXT value cannot be empty.'];
-        }
-        if (strlen($value) > self::TXT_MAX_TOTAL_LENGTH) {
-            return [$value, sprintf('TXT value cannot exceed %d characters.', self::TXT_MAX_TOTAL_LENGTH)];
-        }
-        if (preg_match('/^[\x20-\x7E]+$/', $value) !== 1) {
-            return [$value, 'TXT value may contain printable ASCII characters only.'];
-        }
-
-        return [$value, null];
-    }
-
-    /**
-     * CAA rdata: `<flags> <tag> "<value>"`, e.g. `0 issue "letsencrypt.org"`.
-     *
-     * @return array{0: string, 1: string|null}
-     */
-    private function normaliseCaa(string $value): array
-    {
-        if (preg_match('/^(\d{1,3})\s+([a-z0-9]+)\s+"?([^"]*)"?$/i', $value, $m) !== 1) {
-            return [$value, 'CAA value must look like: 0 issue "ca.example.net".'];
-        }
-
-        $flags = (int) $m[1];
-        $tag = strtolower($m[2]);
-        $tagValue = trim($m[3]);
-
-        if ($flags !== 0 && $flags !== 128) {
-            return [$value, 'CAA flags must be 0 or 128.'];
-        }
-        if (!in_array($tag, self::CAA_TAGS, true)) {
-            return [$value, 'CAA tag must be one of: ' . implode(', ', self::CAA_TAGS) . '.'];
-        }
-        if ($tag === 'iodef' && !preg_match('#^(mailto:[^@\s]+@[^@\s]+|https://\S+)$#i', $tagValue)) {
-            return [$value, 'CAA iodef value must be a mailto: or https:// URL.'];
-        }
-        if ($tag !== 'iodef' && $tagValue !== ';' && $tagValue !== '' && !Hostname::isValid(explode(';', $tagValue)[0])) {
-            return [$value, 'CAA issuer must be a certificate authority domain or ";".'];
-        }
-
-        return [sprintf('%d %s "%s"', $flags, $tag, $tagValue), null];
-    }
-
-    /**
-     * @param list<DnsRecordData> $others
-     */
-    private function checkZoneConflicts(DnsRecordData $record, string $zone, array $others, bool $isCreate): void
-    {
-        if ($isCreate && count($others) >= $this->maxRecordsPerZone) {
-            throw new BusinessRuleException(
-                sprintf('The zone %s already holds the maximum of %d records.', $zone, $this->maxRecordsPerZone),
-                'DNS_ZONE_RECORD_LIMIT',
-            );
-        }
-
-        $sameName = array_filter($others, static fn (DnsRecordData $r) => $r->name === $record->name);
-
-        foreach ($sameName as $other) {
-            if ($other->identity() === $record->identity()) {
-                throw new BusinessRuleException('An identical record already exists.', 'DNS_DUPLICATE_RECORD');
-            }
-
-            // RFC 1034 3.6.2: a CNAME owner may have no other data.
-            if ($record->type === DnsRecordType::CNAME || $other->type === DnsRecordType::CNAME) {
-                throw new BusinessRuleException(
-                    sprintf('%s already has %s data; a CNAME cannot coexist with other records.', $record->name, $other->type->value),
-                    'DNS_CNAME_CONFLICT',
-                );
-            }
-        }
-
-        if ($record->type === DnsRecordType::TXT && $this->isSpf($record->value)) {
-            foreach ($sameName as $other) {
-                if ($other->type === DnsRecordType::TXT && $this->isSpf($other->value)) {
-                    throw new BusinessRuleException(
-                        'Only one SPF (v=spf1) record is allowed per name; merge the mechanisms into the existing record.',
-                        'DNS_DUPLICATE_SPF',
-                    );
-                }
-            }
-        }
-
-        if ($record->type === DnsRecordType::MX && $record->value === '.') {
-            foreach ($sameName as $other) {
-                if ($other->type === DnsRecordType::MX) {
-                    throw new BusinessRuleException('A null MX record must be the only MX record for the name.', 'DNS_NULL_MX_CONFLICT');
-                }
-            }
-        }
-    }
-
-    private function isSpf(string $txt): bool
-    {
-        return str_starts_with(strtolower($txt), 'v=spf1');
-    }
-
-    private function isUint16(int $value): bool
-    {
-        return $value >= 0 && $value <= 65535;
+        return in_array($labels[1], ['_tcp', '_udp', '_tls'], true);
     }
 }

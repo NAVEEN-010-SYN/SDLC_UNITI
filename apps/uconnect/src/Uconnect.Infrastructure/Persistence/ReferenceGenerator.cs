@@ -28,14 +28,31 @@ internal sealed class ReferenceGenerator : IReferenceGenerator
 
     public async Task<string> NextAsync(ReferenceKind kind, CancellationToken cancellationToken = default)
     {
-        var (sequence, prefix, digits) = kind switch
+        string sequence;
+        string prefix;
+        int digits = 6;
+        switch (kind)
         {
-            ReferenceKind.Ticket => (ReferenceSequences.Ticket, "TKT", 6),
-            ReferenceKind.Appointment => (ReferenceSequences.Appointment, "APT", 6),
-            ReferenceKind.Outage => (ReferenceSequences.Outage, "OUT", 6),
-            ReferenceKind.Service => (ReferenceSequences.Service, "SVC", 8),
-            _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown reference kind."),
-        };
+            case ReferenceKind.Ticket:
+                sequence = ReferenceSequences.Ticket;
+                prefix = "TKT";
+                break;
+            case ReferenceKind.Appointment:
+                sequence = ReferenceSequences.Appointment;
+                prefix = "APT";
+                break;
+            case ReferenceKind.Outage:
+                sequence = ReferenceSequences.Outage;
+                prefix = "OUT";
+                break;
+            case ReferenceKind.Service:
+                sequence = ReferenceSequences.Service;
+                prefix = "SVC";
+                digits = 8;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(kind), kind, "Unknown reference kind.");
+        }
 
         var value = await NextValueAsync(sequence, cancellationToken);
         return string.Create(CultureInfo.InvariantCulture, $"{prefix}-{value.ToString(new string('0', digits), CultureInfo.InvariantCulture)}");

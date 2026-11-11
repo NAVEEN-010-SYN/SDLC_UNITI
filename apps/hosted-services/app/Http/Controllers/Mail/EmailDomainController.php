@@ -25,10 +25,11 @@ final class EmailDomainController extends Controller
      */
     public function index(Request $request, string $accountId): JsonResponse
     {
-        $items = array_map(
-            static fn (array $row) => (new EmailDomainResource($row['domain'], $row['quota']))->resolve($request),
-            $this->domains->listWithQuota($accountId),
-        );
+        $items = [];
+        foreach ($this->domains->listWithQuota($accountId) as $row) {
+            $resource = new EmailDomainResource($row['domain'], $row['quota']);
+            $items[] = $resource->resolve($request);
+        }
 
         return $this->ok(['items' => $items, 'page' => 1, 'pageSize' => count($items), 'total' => count($items)]);
     }

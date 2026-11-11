@@ -64,7 +64,17 @@ final class SearchQuery
             $excerpt = mb_substr($excerpt, 0, $cut);
         }
 
-        return ($start > 0 ? '…' : '') . $excerpt . ($start + mb_strlen($excerpt) < mb_strlen($text) ? '…' : '');
+        // Ellipsis (U+2026) marks text cut at either end.
+        $ellipsis = "\u{2026}";
+        $cutAtEnd = $start + mb_strlen($excerpt) < mb_strlen($text);
+        if ($start > 0) {
+            $excerpt = $ellipsis . $excerpt;
+        }
+        if ($cutAtEnd) {
+            $excerpt .= $ellipsis;
+        }
+
+        return $excerpt;
     }
 
     /**

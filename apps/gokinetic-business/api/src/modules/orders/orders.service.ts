@@ -13,8 +13,17 @@ import { assertTransition, isCancellable, TransitionActor } from './order-state-
 import { OrderPlan, annualisedImpactMinor, planOrder } from './order-planner';
 import { OrderFilter, OrdersRepository } from './orders.repository';
 import { BulkRowError, Order, OrderBatch, OrderRequest, OrderStatus, OrderStatusChange } from './orders.types';
+import {
+  MAX_BULK_ITEMS,
+  assertBatchSize,
+  canAccessRequestSites,
+  findIntraBatchConflicts,
+  findSiteAccessErrors,
+  throwIfRowErrors
+} from './order-bulk-validation';
 
-export const MAX_BULK_ITEMS = 200;
+// Re-exported so existing imports from this module keep working.
+export { MAX_BULK_ITEMS, findIntraBatchConflicts };
 
 export interface OrderDetail extends Order {
   history: OrderStatusChange[];
@@ -25,29 +34,6 @@ interface InventorySnapshot {
   servicesById: Map<string, Service>;
   servicesBySite: Map<string, Service[]>;
   servicesWithOpenOrders: Set<string>;
-}
-
-/** Finds rows within one bulk upload that would conflict with each other. */
-export function findIntraBatchConflicts(items: OrderRequest[]): BulkRowError[] {
-  const errors: BulkRowError[] = [];
-  const seenService = new Map<string, number>();
-  const seenProvide = new Map<string, number>();
-  items.forEach((item, index) => {
-    const row = index + 1;
-    if (item.serviceId) {
-      const prior = seenService.get(item.serviceId);
-      if (prior !== undefined) {
-        errors.push({ row, field: 'serviceId', message: `Service is already modified by row ${prior}` });
-      } else seenService.set(item.serviceId, row);
-    }
-    if (item.orderType === 'PROVIDE') {
-      const prior = seenProvide.get(item.siteId);
-      if (prior !== undefined) {
-        errors.push({ row, field: 'siteId', message: `Site already has a PROVIDE in row ${prior}` });
-      } else seenProvide.set(item.siteId, row);
-    }
-  });
-  return errors;
 }
 
 export class OrdersService {
@@ -100,33 +86,15 @@ export class OrdersService {
    * nothing is created and all row errors are returned together.
    */
   async createBulk(ctx: AuthContext, items: OrderRequest[], submit: boolean): Promise<OrderBatch> {
-    if (items.length === 0) throw new BusinessRuleError('empty-batch', 'A bulk order needs at least one item');
-    if (items.length > MAX_BULK_ITEMS) {
-      throw new BusinessRuleError('batch-too-large', `A bulk order may contain at most ${MAX_BULK_ITEMS} items`);
-    }
+    assertBatchSize(items);
     const account = await this.accounts.get(ctx.accountId);
     this.assertAccountCanOrder(account.status);
 
     const rowErrors: BulkRowError[] = findIntraBatchConflicts(items);
-    items.forEach((item, i) => {
-      if (!canAccessSite(ctx, item.siteId) || (item.targetSiteId && !canAccessSite(ctx, item.targetSiteId))) {
-        rowErrors.push({ row: i + 1, field: 'siteId', message: 'You do not have access to this site' });
-      }
-    });
+    rowErrors.push(...findSiteAccessErrors(ctx, items));
     const snapshot = await this.snapshot(ctx, items);
-    const plans: OrderPlan[] = [];
-    items.forEach((item, i) => {
-      const result = planOrder(item, this.planningContext(item, snapshot));
-      if (result.ok) plans.push(result.plan);
-      else result.issues.forEach((issue) => rowErrors.push({ row: i + 1, ...issue }));
-    });
-
-    if (rowErrors.length > 0) {
-      rowErrors.sort((a, b) => a.row - b.row);
-      throw new BusinessRuleError('bulk-validation-failed', `${new Set(rowErrors.map((e) => e.row)).size} row(s) failed validation`, {
-        rowErrors
-      });
-    }
+    const plans = this.planBulk(items, snapshot, rowErrors);
+    throwIfRowErrors(rowErrors);
 
     return this.db.tx(async (tx) => {
       const reference = newReference('BAT', this.clock.now());
@@ -279,9 +247,25 @@ export class OrdersService {
   }
 
   private assertSiteAccess(ctx: AuthContext, request: OrderRequest): void {
-    if (!canAccessSite(ctx, request.siteId) || (request.targetSiteId && !canAccessSite(ctx, request.targetSiteId))) {
+    if (!canAccessRequestSites(ctx, request)) {
       throw new ForbiddenError('You do not have access to this site');
     }
+  }
+
+  /** Plans every bulk item; planning issues are appended to rowErrors. */
+  private planBulk(items: OrderRequest[], snapshot: InventorySnapshot, rowErrors: BulkRowError[]): OrderPlan[] {
+    const plans: OrderPlan[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const result = planOrder(items[i], this.planningContext(items[i], snapshot));
+      if (result.ok) {
+        plans.push(result.plan);
+        continue;
+      }
+      for (const issue of result.issues) {
+        rowErrors.push({ row: i + 1, ...issue });
+      }
+    }
+    return plans;
   }
 
   private planOrThrow(request: OrderRequest, snapshot: InventorySnapshot): OrderPlan {

@@ -42,8 +42,8 @@ function DealCard({ deal, onChanged }: { deal: Deal; onChanged: () => void }) {
   return (
     <article className="pipeline__card" aria-label={deal.customerName}>
       <strong>{deal.customerName}</strong>
-      <div>{deal.reference} · <StatusBadge status={deal.status} /></div>
-      <div><Money minor={deal.estimatedMrcMinor} currency={deal.currency} /> / month · {deal.siteCount} site(s)</div>
+      <div>{deal.reference} &middot; <StatusBadge status={deal.status} /></div>
+      <div><Money minor={deal.estimatedMrcMinor} currency={deal.currency} /> / month &middot; {deal.siteCount} site(s)</div>
       {deal.hasConflict && <div className="badge badge--warning">Overlapping claim</div>}
       {deal.protectedUntil && deal.status === 'APPROVED' && <div>Protected until {formatDate(deal.protectedUntil)}</div>}
       <ErrorBanner error={extend.error ?? outcome.error} />

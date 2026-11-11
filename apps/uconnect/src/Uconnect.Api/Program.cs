@@ -56,18 +56,7 @@ builder.Services
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     })
-    .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = context =>
-    {
-        var problem = new ValidationProblemDetails(context.ModelState)
-        {
-            Status = StatusCodes.Status400BadRequest,
-            Title = "One or more fields are invalid.",
-            Instance = context.HttpContext.Request.Path,
-        };
-        problem.Extensions["code"] = "validation_failed";
-        problem.Extensions["correlationId"] = context.HttpContext.TraceIdentifier;
-        return new BadRequestObjectResult(problem) { ContentTypes = { "application/problem+json" } };
-    });
+    .ConfigureApiBehaviorOptions(options => options.InvalidModelStateResponseFactory = Program.InvalidModelStateResponse);
 
 builder.Services.AddHealthChecks().AddDbContextCheck<UconnectDbContext>("database");
 
@@ -90,4 +79,17 @@ app.Run();
 /// <summary>Entry point marker for integration tests.</summary>
 public partial class Program
 {
+    /// <summary>Shapes model-binding failures as a problem+json 400 with a stable code.</summary>
+    internal static IActionResult InvalidModelStateResponse(ActionContext context)
+    {
+        var problem = new ValidationProblemDetails(context.ModelState)
+        {
+            Status = StatusCodes.Status400BadRequest,
+            Title = "One or more fields are invalid.",
+            Instance = context.HttpContext.Request.Path,
+        };
+        problem.Extensions["code"] = "validation_failed";
+        problem.Extensions["correlationId"] = context.HttpContext.TraceIdentifier;
+        return new BadRequestObjectResult(problem) { ContentTypes = { "application/problem+json" } };
+    }
 }

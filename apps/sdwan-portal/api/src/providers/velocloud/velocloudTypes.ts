@@ -76,30 +76,45 @@ export interface VcoRuleMatch {
   proto: number;
 }
 
+export type VcoPriority = 'high' | 'normal' | 'low';
+export type VcoQosType = 'realtime' | 'transactional' | 'bulk';
+
+export interface VcoScheduler {
+  priority: VcoPriority;
+  bandwidthCapPct: number;
+  queueLen: number;
+}
+
+export interface VcoQos {
+  type: VcoQosType;
+  rxScheduler: VcoScheduler;
+  txScheduler: VcoScheduler;
+  /** Absolute rate limit in kbps (-1 = none). Portal extension stored alongside the scheduler. */
+  rateLimitKbps?: number;
+  dscpRemark?: number;
+}
+
+export interface VcoRouteAction {
+  linkPolicy: 'auto' | 'fixed' | 'loadBalance';
+  wanlinkPolicy?: 'mandatory' | 'preferred' | 'available';
+  linkTag?: string;
+  serviceGroup: 'ALL' | 'PUBLIC_WIRED' | 'PRIVATE_WIRED' | 'WIRELESS';
+}
+
+export interface VcoQosAction {
+  routeType: 'edge2Any' | 'edge2Edge' | 'edge2DataCenter' | 'edge2Cloud';
+  allowConversion: boolean;
+  QoS: VcoQos;
+  edge2EdgeRouteAction: VcoRouteAction;
+}
+
 export interface VcoQosRule {
   name: string;
   /** Explicit evaluation order; VCO evaluates rules in array order, this mirrors it. */
   ruleOrder?: number;
   disabled?: boolean;
   match: VcoRuleMatch;
-  action: {
-    routeType: 'edge2Any' | 'edge2Edge' | 'edge2DataCenter' | 'edge2Cloud';
-    allowConversion: boolean;
-    QoS: {
-      type: 'realtime' | 'transactional' | 'bulk';
-      rxScheduler: { priority: 'high' | 'normal' | 'low'; bandwidthCapPct: number; queueLen: number };
-      txScheduler: { priority: 'high' | 'normal' | 'low'; bandwidthCapPct: number; queueLen: number };
-      /** Absolute rate limit in kbps (-1 = none). Portal extension stored alongside the scheduler. */
-      rateLimitKbps?: number;
-      dscpRemark?: number;
-    };
-    edge2EdgeRouteAction: {
-      linkPolicy: 'auto' | 'fixed' | 'loadBalance';
-      wanlinkPolicy?: 'mandatory' | 'preferred' | 'available';
-      linkTag?: string;
-      serviceGroup: 'ALL' | 'PUBLIC_WIRED' | 'PRIVATE_WIRED' | 'WIRELESS';
-    };
-  };
+  action: VcoQosAction;
 }
 
 export interface VcoFirewallRule {

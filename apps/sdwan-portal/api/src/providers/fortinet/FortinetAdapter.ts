@@ -37,6 +37,14 @@ export interface FortinetAdapterOptions {
   sleepImpl?: (ms: number) => Promise<void>;
 }
 
+const INSTALL_TIMEOUT_MS = 300_000;
+
+/** Site address is held in FortiManager device meta fields. */
+function siteAddressFromMeta(meta: Record<string, string>): DiscoveredSite['address'] {
+  if (!meta.Address) return undefined;
+  return { line1: meta.Address, city: meta.City ?? '', postcode: meta.Postcode ?? '', country: meta.Country ?? 'GB' };
+}
+
 const DEVICE_FIELDS = ['name', 'sn', 'platform_str', 'os_ver', 'mr', 'patch', 'build', 'conn_status', 'ha_mode', 'ha_slave', 'last_checked', 'desc', 'meta fields'];
 
 export class FortinetAdapter implements SdwanProvider {
@@ -63,7 +71,7 @@ export class FortinetAdapter implements SdwanProvider {
     return (await this.fmg.rpc<FmgDeviceGroup[]>('get', `/dvmdb/adom/${adom}/group`)) ?? [];
   }
 
-  /** Maps device name → owning site (device group). Devices outside any group become their own site. */
+  /** Maps device name -> owning site (device group). Devices outside any group become their own site. */
   private siteIndex(adom: string, groups: FmgDeviceGroup[]): Map<string, string> {
     const idx = new Map<string, string>();
     for (const g of groups) {
@@ -78,19 +86,20 @@ export class FortinetAdapter implements SdwanProvider {
     const known = new Set(devices.map((d) => d.name));
     const sites: DiscoveredSite[] = [];
     const grouped = new Set<string>();
-    for (const g of groups.filter((x) => !x.name.startsWith('All_'))) {
-      const members = (g['object member'] ?? []).map((m) => m.name).filter((n) => known.has(n));
+    for (const g of groups) {
+      if (g.name.startsWith('All_')) continue;
+      const members: string[] = [];
+      for (const m of g['object member'] ?? []) {
+        if (known.has(m.name)) members.push(m.name);
+      }
       if (members.length === 0) continue;
-      members.forEach((m) => grouped.add(m));
-      const meta = devices.find((d) => d.name === members[0])?.['meta fields'] ?? {};
-      sites.push({
-        vendorId: g.name,
-        name: g.desc || g.name,
-        address: meta.Address ? { line1: meta.Address, city: meta.City ?? '', postcode: meta.Postcode ?? '', country: meta.Country ?? 'GB' } : undefined,
-        edgeVendorIds: members,
-      });
+      for (const m of members) grouped.add(m);
+      const firstDevice = devices.find((d) => d.name === members[0]);
+      const meta = firstDevice?.['meta fields'] ?? {};
+      sites.push({ vendorId: g.name, name: g.desc || g.name, address: siteAddressFromMeta(meta), edgeVendorIds: members });
     }
-    for (const d of devices.filter((x) => !grouped.has(x.name))) {
+    for (const d of devices) {
+      if (grouped.has(d.name)) continue;
       sites.push({ vendorId: d.name, name: d.desc || d.name, edgeVendorIds: [d.name] });
     }
     return sites;
@@ -155,9 +164,13 @@ export class FortinetAdapter implements SdwanProvider {
   private async memberInfo(device: string): Promise<MemberInfo[]> {
     const [members, interfaces] = await Promise.all([this.sdwanMembers(device), this.wanInterfaces(device)]);
     const ifMap = new Map(interfaces.map((i) => [i.name, i]));
-    return members
-      .filter((m) => m.status === 'enable')
-      .map((m) => ({ seq: m['seq-num'], transport: parseInterfaceDescription(ifMap.get(m.interface)?.description).transport }));
+    const result: MemberInfo[] = [];
+    for (const m of members) {
+      if (m.status !== 'enable') continue;
+      const desc = ifMap.get(m.interface)?.description;
+      result.push({ seq: m['seq-num'], transport: parseInterfaceDescription(desc).transport });
+    }
+    return result;
   }
 
   private async adomAddresses(adom: string): Promise<FgtAddress[]> {
@@ -240,7 +253,7 @@ export class FortinetAdapter implements SdwanProvider {
       scope: [{ name: device, vdom: 'root' }],
       flags: ['none'],
     });
-    await this.fmg.waitForTask(res.task, { timeoutMs: this.opts.installTimeoutMs ?? 300_000, pollMs: 3000, sleep: this.sleepImpl });
+    await this.waitForInstall(res.task);
     return res.task;
   }
 
@@ -250,8 +263,13 @@ export class FortinetAdapter implements SdwanProvider {
       scope: [{ name: device, vdom: 'root' }],
       flags: ['none'],
     });
-    await this.fmg.waitForTask(res.task, { timeoutMs: this.opts.installTimeoutMs ?? 300_000, pollMs: 3000, sleep: this.sleepImpl });
+    await this.waitForInstall(res.task);
     return res.task;
+  }
+
+  private async waitForInstall(task: number): Promise<void> {
+    const timeoutMs = this.opts.installTimeoutMs ?? INSTALL_TIMEOUT_MS;
+    await this.fmg.waitForTask(task, { timeoutMs, pollMs: 3000, sleep: this.sleepImpl });
   }
 
   async exportConfig(ctx: ProviderContext, edgeVendorId: string): Promise<ConfigSnapshot> {
@@ -309,27 +327,27 @@ export class FortinetAdapter implements SdwanProvider {
   }
 
   async listEvents(ctx: ProviderContext, range: TimeRange): Promise<SdwanEvent[]> {
-    const devices = (await this.devices(ctx.tenant)).filter((d) => d.conn_status === 1);
+    const allDevices = await this.devices(ctx.tenant);
+    const devices = allDevices.filter((d) => d.conn_status === 1);
     const from = Date.parse(range.from);
     const to = Date.parse(range.to);
-    const perDevice = await Promise.all(
-      devices.map(async (d) => {
-        try {
-          const logs = await this.fmg.proxy<FgtEventLog[]>(ctx.tenant, d.name, 'get', '/api/v2/log/memory/event/system?rows=500');
-          return (logs ?? []).map((l) => mapEventLog(ctx.tenant, ctx.accountId, d.name, l));
-        } catch (err) {
-          this.logger.warn('event fetch failed for device', { device: d.name, err });
-          return [];
-        }
-      }),
-    );
-    return perDevice
-      .flat()
-      .filter((e) => {
-        const t = Date.parse(e.occurredAt);
-        return t >= from && t <= to;
-      })
-      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    const perDevice = await Promise.all(devices.map((d) => this.deviceEvents(ctx, d.name)));
+    const inRange: SdwanEvent[] = [];
+    for (const e of perDevice.flat()) {
+      const t = Date.parse(e.occurredAt);
+      if (t >= from && t <= to) inRange.push(e);
+    }
+    return inRange.sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+  }
+
+  private async deviceEvents(ctx: ProviderContext, device: string): Promise<SdwanEvent[]> {
+    try {
+      const logs = await this.fmg.proxy<FgtEventLog[]>(ctx.tenant, device, 'get', '/api/v2/log/memory/event/system?rows=500');
+      return (logs ?? []).map((l) => mapEventLog(ctx.tenant, ctx.accountId, device, l));
+    } catch (err) {
+      this.logger.warn('event fetch failed for device', { device, err });
+      return [];
+    }
   }
 
   async ping(): Promise<boolean> {

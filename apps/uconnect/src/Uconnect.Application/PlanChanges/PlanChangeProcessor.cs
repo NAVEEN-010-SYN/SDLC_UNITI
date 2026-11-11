@@ -46,8 +46,14 @@ public sealed class PlanChangeProcessor
 
     public async Task<PlanChangeRunSummary> RunAsync(CancellationToken ct)
     {
-        int submitted = 0, completed = 0, failed = 0, retried = 0, errors = 0;
+        var counts = new RunCounts();
+        await SubmitDueChangesAsync(counts, ct);
+        await PollProvisioningAsync(counts, ct);
+        return new PlanChangeRunSummary(counts.Submitted, counts.Completed, counts.Failed, counts.Retried, counts.Errors);
+    }
 
+    private async Task SubmitDueChangesAsync(RunCounts counts, CancellationToken ct)
+    {
         foreach (var change in await _planChanges.ListDueAsync(_clock.Today, ct))
         {
             try
@@ -55,42 +61,45 @@ public sealed class PlanChangeProcessor
                 var (service, from, to) = await LoadAsync(change, ct);
                 if (await TrySubmitAsync(change, service, from, to, ct))
                 {
-                    submitted++;
+                    counts.Submitted++;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                errors++;
+                counts.Errors++;
                 _logger.LogError(ex, "Failed to submit plan change {PlanChangeId}", change.Id);
             }
         }
+    }
 
+    private async Task PollProvisioningAsync(RunCounts counts, CancellationToken ct)
+    {
         foreach (var change in await _planChanges.ListProvisioningAsync(ct))
         {
             try
             {
                 var status = await _provisioning.GetOrderStatusAsync(change.ProvisioningOrderRef!, ct);
-                switch (await ApplyStatusAsync(change, status, ct))
+                var result = await ApplyStatusAsync(change, status, ct);
+                if (result == PlanChangeStatus.Completed)
                 {
-                    case PlanChangeStatus.Completed:
-                        completed++;
-                        break;
-                    case PlanChangeStatus.Failed:
-                        failed++;
-                        break;
-                    case PlanChangeStatus.Provisioning when change.ProvisioningOrderRef != status.OrderRef:
-                        retried++;
-                        break;
+                    counts.Completed++;
+                }
+                else if (result == PlanChangeStatus.Failed)
+                {
+                    counts.Failed++;
+                }
+                else if (result == PlanChangeStatus.Provisioning && change.ProvisioningOrderRef != status.OrderRef)
+                {
+                    // Still provisioning under a new order ref: the failed order was resubmitted.
+                    counts.Retried++;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                errors++;
+                counts.Errors++;
                 _logger.LogError(ex, "Failed to poll provisioning for plan change {PlanChangeId}", change.Id);
             }
         }
-
-        return new PlanChangeRunSummary(submitted, completed, failed, retried, errors);
     }
 
     /// <summary>Handles an asynchronous status callback from the provisioning platform.</summary>
@@ -137,39 +146,44 @@ public sealed class PlanChangeProcessor
         {
             case ProvisioningOrderState.Pending:
                 return change.Status;
-
             case ProvisioningOrderState.Completed:
-            {
-                var (service, _, to) = await LoadAsync(change, ct);
-                service.ApplyPlan(to, change.ChangeType, change.EffectiveOn, change.Id);
-                change.Complete(status.CompletedAt ?? _clock.UtcNow);
-                await _unitOfWork.SaveChangesAsync(ct);
-                _logger.LogInformation("Plan change {PlanChangeId} completed; service {ServiceReference} now on {PlanCode}", change.Id, service.ServiceReference, to.Code);
-                return PlanChangeStatus.Completed;
-            }
-
+                return await ApplyCompletedAsync(change, status, ct);
             case ProvisioningOrderState.Failed:
-            {
-                var reason = string.IsNullOrWhiteSpace(status.FailureReason) ? "Provisioning reported a failure." : status.FailureReason;
-                var (service, from, to) = await LoadAsync(change, ct);
-                change.Fail(reason, _clock.UtcNow);
-
-                if (change.ProvisioningAttempts < PlanChange.MaxProvisioningAttempts)
-                {
-                    await _unitOfWork.SaveChangesAsync(ct);
-                    _logger.LogWarning("Plan change {PlanChangeId} failed (attempt {Attempt}): {Reason}; retrying", change.Id, change.ProvisioningAttempts, reason);
-                    return await TrySubmitAsync(change, service, from, to, ct) ? PlanChangeStatus.Provisioning : PlanChangeStatus.Failed;
-                }
-
-                service.ReleasePendingPlanChange(change.Id);
-                await _unitOfWork.SaveChangesAsync(ct);
-                _logger.LogError("Plan change {PlanChangeId} failed permanently after {Attempts} attempts: {Reason}", change.Id, change.ProvisioningAttempts, reason);
-                return PlanChangeStatus.Failed;
-            }
-
+                return await ApplyFailedAsync(change, status, ct);
             default:
                 throw new ArgumentOutOfRangeException(nameof(status), status.State, "Unknown provisioning state.");
         }
+    }
+
+    private async Task<PlanChangeStatus> ApplyCompletedAsync(PlanChange change, ProvisioningOrderStatus status, CancellationToken ct)
+    {
+        var (service, _, to) = await LoadAsync(change, ct);
+        service.ApplyPlan(to, change.ChangeType, change.EffectiveOn, change.Id);
+        change.Complete(status.CompletedAt ?? _clock.UtcNow);
+        await _unitOfWork.SaveChangesAsync(ct);
+        _logger.LogInformation("Plan change {PlanChangeId} completed; service {ServiceReference} now on {PlanCode}", change.Id, service.ServiceReference, to.Code);
+        return PlanChangeStatus.Completed;
+    }
+
+    /// <summary>Retries a failed order until the attempt limit, then fails the change permanently.</summary>
+    private async Task<PlanChangeStatus> ApplyFailedAsync(PlanChange change, ProvisioningOrderStatus status, CancellationToken ct)
+    {
+        var reason = string.IsNullOrWhiteSpace(status.FailureReason) ? "Provisioning reported a failure." : status.FailureReason;
+        var (service, from, to) = await LoadAsync(change, ct);
+        change.Fail(reason, _clock.UtcNow);
+
+        if (change.ProvisioningAttempts < PlanChange.MaxProvisioningAttempts)
+        {
+            await _unitOfWork.SaveChangesAsync(ct);
+            _logger.LogWarning("Plan change {PlanChangeId} failed (attempt {Attempt}): {Reason}; retrying", change.Id, change.ProvisioningAttempts, reason);
+            var resubmitted = await TrySubmitAsync(change, service, from, to, ct);
+            return resubmitted ? PlanChangeStatus.Provisioning : PlanChangeStatus.Failed;
+        }
+
+        service.ReleasePendingPlanChange(change.Id);
+        await _unitOfWork.SaveChangesAsync(ct);
+        _logger.LogError("Plan change {PlanChangeId} failed permanently after {Attempts} attempts: {Reason}", change.Id, change.ProvisioningAttempts, reason);
+        return PlanChangeStatus.Failed;
     }
 
     private async Task<(Service Service, Plan From, Plan To)> LoadAsync(PlanChange change, CancellationToken ct)
@@ -178,5 +192,15 @@ public sealed class PlanChangeProcessor
         var from = await _plans.GetByIdAsync(change.FromPlanId, ct) ?? throw new NotFoundException("Plan", change.FromPlanId);
         var to = await _plans.GetByIdAsync(change.ToPlanId, ct) ?? throw new NotFoundException("Plan", change.ToPlanId);
         return (service, from, to);
+    }
+
+    /// <summary>Running totals for one plan-change run.</summary>
+    private sealed class RunCounts
+    {
+        public int Submitted;
+        public int Completed;
+        public int Failed;
+        public int Retried;
+        public int Errors;
     }
 }

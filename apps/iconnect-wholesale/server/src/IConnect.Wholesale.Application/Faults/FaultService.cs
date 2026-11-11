@@ -54,15 +54,7 @@ public sealed class FaultService
 
     public async Task<FaultDetailDto> RaiseAsync(RaiseFaultRequest request, CancellationToken ct)
     {
-        var v = new ValidationBuilder();
-        var priorityOk = Enum.TryParse<FaultPriority>(request.Priority, true, out var priority) && Enum.IsDefined(priority);
-        var categoryOk = Enum.TryParse<FaultCategory>(request.Category?.Replace("_", string.Empty, StringComparison.Ordinal), true, out var category)
-            && Enum.IsDefined(category);
-        v.Require(priorityOk, "priority", "Priority must be P1, P2, P3 or P4.")
-            .Require(categoryOk, "category", "Unknown fault category.")
-            .Require(!string.IsNullOrWhiteSpace(request.Description) && request.Description.Trim().Length is >= 10 and <= 2000,
-                "description", "Description must be 10 to 2000 characters.");
-        v.ThrowIfInvalid();
+        var (priority, category) = ValidateRaiseRequest(request);
 
         var service = await _services.GetAsync(request.ServiceId, ct);
         if (service is null || service.PartnerId != _caller.PartnerId)
@@ -90,6 +82,28 @@ public sealed class FaultService
         await _uow.SaveChangesAsync(ct);
         _logger.LogInformation("Fault {Reference} raised on service {ServiceId} at {Priority}/{Care}", reference, service.Id, fault.Priority, service.CareLevel);
         return ToDetail(fault);
+    }
+
+    private static (FaultPriority Priority, FaultCategory Category) ValidateRaiseRequest(RaiseFaultRequest request)
+    {
+        var priorityOk = Enum.TryParse<FaultPriority>(request.Priority, true, out var priority) && Enum.IsDefined(priority);
+
+        var categoryText = request.Category?.Replace("_", string.Empty, StringComparison.Ordinal);
+        var categoryOk = Enum.TryParse<FaultCategory>(categoryText, true, out var category) && Enum.IsDefined(category);
+
+        var descriptionOk = false;
+        if (!string.IsNullOrWhiteSpace(request.Description))
+        {
+            var length = request.Description.Trim().Length;
+            descriptionOk = length >= 10 && length <= 2000;
+        }
+
+        var v = new ValidationBuilder();
+        v.Require(priorityOk, "priority", "Priority must be P1, P2, P3 or P4.");
+        v.Require(categoryOk, "category", "Unknown fault category.");
+        v.Require(descriptionOk, "description", "Description must be 10 to 2000 characters.");
+        v.ThrowIfInvalid();
+        return (priority, category);
     }
 
     public async Task<PagedResult<FaultSummaryDto>> ListAsync(FaultStatus? status, FaultPriority? priority, PageRequest page, CancellationToken ct)
@@ -181,8 +195,24 @@ public sealed class FaultService
 
         return new FaultDetailDto(f.Id, f.Reference, f.ServiceId, f.Uprn, f.Priority.ToString(), f.Category.ToString(), f.CareLevel.ToString(),
             Upper(f.Status), f.Description, sla, f.ResolvedAt, f.ResolutionCode, f.ServiceCredit?.MinorUnits, f.ServiceCreditBasis,
-            AllowedActions(f), f.Notes.Where(n => !n.InternalOnly || _caller.IsSupportAgent).Select(n => new FaultNoteDto(n.At, n.Author, n.Text)).ToList(),
-            f.CreatedAt);
+            AllowedActions(f), VisibleNotes(f), f.CreatedAt);
+    }
+
+    /// <summary>Internal notes are only shown to support agents.</summary>
+    private List<FaultNoteDto> VisibleNotes(Fault f)
+    {
+        var notes = new List<FaultNoteDto>();
+        foreach (var n in f.Notes)
+        {
+            if (n.InternalOnly && !_caller.IsSupportAgent)
+            {
+                continue;
+            }
+
+            notes.Add(new FaultNoteDto(n.At, n.Author, n.Text));
+        }
+
+        return notes;
     }
 
     private IReadOnlyList<string> AllowedActions(Fault f)

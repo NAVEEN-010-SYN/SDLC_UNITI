@@ -75,7 +75,7 @@ public sealed record Money : IComparable<Money>
 
     /// <summary>
     /// Scales the amount by <paramref name="numerator"/>/<paramref name="denominator"/> using integer
-    /// arithmetic, rounding half away from zero. Used for proration (price × days used / days in period).
+    /// arithmetic, rounding half away from zero. Used for proration (price x days used / days in period).
     /// </summary>
     public Money MultiplyRatio(long numerator, long denominator)
     {

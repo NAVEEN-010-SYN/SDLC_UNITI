@@ -56,7 +56,7 @@ export function categoryBreakdown(summary: InventorySummary | undefined) {
         <h2>Open support tickets</h2>
         @for (t of openTickets(); track t.id) {
           <a class="list-row" [routerLink]="['/tickets', t.id]">
-            <gkb-status-badge [status]="t.priority" /> {{ t.reference }} – {{ t.subject }}
+            <gkb-status-badge [status]="t.priority" /> {{ t.reference }} \u2013 {{ t.subject }}
             <gkb-status-badge [status]="t.sla.resolution.state" />
           </a>
         } @empty { <p>No open tickets.</p> }
@@ -64,7 +64,7 @@ export function categoryBreakdown(summary: InventorySummary | undefined) {
       <section>
         <h2>Orders in flight</h2>
         @for (o of openOrders(); track o.id) {
-          <a class="list-row" [routerLink]="['/orders', o.id]">{{ o.reference }} · {{ o.orderType }} <gkb-status-badge [status]="o.status" /></a>
+          <a class="list-row" [routerLink]="['/orders', o.id]">{{ o.reference }} \u00B7 {{ o.orderType }} <gkb-status-badge [status]="o.status" /></a>
         } @empty { <p>No orders in progress.</p> }
       </section>
     </div>
@@ -79,7 +79,7 @@ export function categoryBreakdown(summary: InventorySummary | undefined) {
               <tr>
                 <td>{{ p.period }}</td>
                 <td class="num">{{ p.totalMinor | money }}</td>
-                <td class="num">{{ p.changeMinor === null ? '—' : (p.changeMinor | money: 'GBP' : true) }} @if (p.changeBps !== null) { ({{ p.changeBps | pct: 'bps' }}) }</td>
+                <td class="num">{{ p.changeMinor === null ? '\u2014' : (p.changeMinor | money: 'GBP' : true) }} @if (p.changeBps !== null) { ({{ p.changeBps | pct: 'bps' }}) }</td>
               </tr>
             }
           </tbody>

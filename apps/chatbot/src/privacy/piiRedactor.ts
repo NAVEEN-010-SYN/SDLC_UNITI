@@ -58,12 +58,19 @@ const DETECTORS: Detector[] = [
     pattern: /\b(?:password|passcode|pwd|pin)\b(?:\s*(?:is\b|[:=])\s*|\s+(?=\S*\d))(\S{3,})/gi,
     group: 1,
   },
+  // local@domain.tld
   { kind: 'EMAIL', pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
+  // 13-19 digits, optional single space/dash separators; confirmed by Luhn
   { kind: 'CARD_NUMBER', pattern: /\b(?:\d[ -]?){12,18}\d\b/g, accept: passesLuhn },
+  // 2 letters + 2 check digits + 3-7 groups of 4 + optional short tail
   { kind: 'IBAN', pattern: /\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,3})?\b/g },
+  // nn-nn-nn
   { kind: 'SORT_CODE', pattern: /\b\d{2}-\d{2}-\d{2}\b/g },
+  // dotted quad; octet ranges checked by isValidIpv4
   { kind: 'IP_ADDRESS', pattern: /\b\d{1,3}(?:\.\d{1,3}){3}\b/g, accept: isValidIpv4 },
+  // UK numbers: +44 or leading 0, then 9-10 digits with optional separators
   { kind: 'PHONE', pattern: /(?:\+44\s?|\b0)(?:\d[\s-]?){9,10}\b/g },
+  // outward code (A9, A99, AA9, A9A...) + optional space + inward code (9AA)
   { kind: 'UK_POSTCODE', pattern: /\b[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}\b/gi },
 ];
 

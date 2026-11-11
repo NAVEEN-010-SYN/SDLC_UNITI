@@ -21,11 +21,11 @@ export function phoneNumber(): ValidatorFn {
 }
 
 /**
- * Parses a user-entered amount ("1,234.5", "£12") into integer minor units without floating
+ * Parses a user-entered amount ("1,234.5", "GBP 12") into integer minor units without floating
  * point. Returns null for anything that is not a non-negative amount with at most `digits` decimals.
  */
 export function parseMoneyToMinor(input: string, digits = 2): number | null {
-  const cleaned = input.trim().replace(/^£/, '').replace(/,/g, '');
+  const cleaned = input.trim().replace(/^\u00A3/, '').replace(/,/g, '');
   const match = new RegExp(`^(\\d+)(?:\\.(\\d{0,${digits}}))?$`).exec(cleaned);
   if (!match) return null;
   const minor = Number(match[1]) * 10 ** digits + Number((match[2] ?? '').padEnd(digits, '0') || 0);

@@ -2,17 +2,27 @@ import type { Shadow, Token, TokenValue, Typography } from '../tokens';
 
 export const kebab = (s: string): string => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
 
-export const camel = (parts: string[]): string =>
-  parts
-    .map((p, i) => {
-      const clean = p.replace(/[^a-zA-Z0-9]+(.)?/g, (_m, c: string | undefined) => (c ? c.toUpperCase() : ''));
-      return i === 0 ? clean.charAt(0).toLowerCase() + clean.slice(1) : clean.charAt(0).toUpperCase() + clean.slice(1);
-    })
-    .join('');
+function upperAfterSeparator(_match: string, c: string | undefined): string {
+  if (c) return c.toUpperCase();
+  return '';
+}
+
+export function camel(parts: string[]): string {
+  let out = '';
+  for (let i = 0; i < parts.length; i++) {
+    const clean = parts[i].replace(/[^a-zA-Z0-9]+(.)?/g, upperAfterSeparator);
+    const first = i === 0 ? clean.charAt(0).toLowerCase() : clean.charAt(0).toUpperCase();
+    out += first + clean.slice(1);
+  }
+  return out;
+}
 
 export const cssVarName = (path: string[], prefix = 'uniti'): string => `--${prefix}-${path.map(kebab).join('-')}`;
 
-const quoteFamily = (f: string): string => (/^[a-z-]+$/i.test(f) && !f.includes(' ') ? f : `"${f}"`);
+function quoteFamily(f: string): string {
+  if (/^[a-z-]+$/i.test(f) && !f.includes(' ')) return f;
+  return `"${f}"`;
+}
 
 export function fontStack(families: string[]): string {
   return families.map(quoteFamily).join(', ');

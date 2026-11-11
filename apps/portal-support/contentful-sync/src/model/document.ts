@@ -10,7 +10,7 @@ export interface Money {
   currency: string;
 }
 
-interface BaseDocument {
+export interface BaseDocument {
   id: string;
   entryId: string;
   locale: string;

@@ -2,7 +2,7 @@ import { InvalidStateTransitionError } from '../../lib/errors';
 import { TicketStatus } from './tickets.types';
 
 /**
- * Ticket lifecycle: OPEN → IN_PROGRESS → PENDING_CUSTOMER → RESOLVED → CLOSED.
+ * Ticket lifecycle: OPEN -> IN_PROGRESS -> PENDING_CUSTOMER -> RESOLVED -> CLOSED.
  *
  * Support agents drive work states. Customers may withdraw an OPEN ticket, confirm a
  * resolution (close it), reopen a recently resolved ticket, and implicitly hand a

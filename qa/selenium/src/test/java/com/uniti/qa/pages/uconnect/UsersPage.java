@@ -52,17 +52,27 @@ public final class UsersPage extends BasePage {
     }
 
     public Optional<UserRow> user(String email) {
-        return tableRows(USERS_TABLE).stream()
-                .filter(row -> row.getText().contains(email))
-                .findFirst()
-                .map(UserRow::from);
+        WebElement row = findRow(email);
+        if (row == null) {
+            return Optional.empty();
+        }
+        return Optional.of(UserRow.from(row));
+    }
+
+    private WebElement findRow(String email) {
+        for (WebElement row : tableRows(USERS_TABLE)) {
+            if (row.getText().contains(email)) {
+                return row;
+            }
+        }
+        return null;
     }
 
     public void revoke(String email) {
-        WebElement row = tableRows(USERS_TABLE).stream()
-                .filter(r -> r.getText().contains(email))
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("User not listed: " + email));
+        WebElement row = findRow(email);
+        if (row == null) {
+            throw new IllegalStateException("User not listed: " + email);
+        }
         row.findElement(By.cssSelector("button[data-action='revoke-user']")).click();
         waits.click(By.cssSelector("[role='alertdialog'] button[data-action='confirm']"));
         waits.until(d -> user(email).isEmpty(), "user " + email + " to be removed");

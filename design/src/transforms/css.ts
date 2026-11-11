@@ -1,5 +1,11 @@
-import type { ThemeSet } from '../tokens';
+import type { ThemeSet, Token } from '../tokens';
 import { changedTokens, cssValue, cssVarName, GENERATED_HEADER } from './format';
+
+function declarations(tokens: Token[], indent: string): string[] {
+  const lines: string[] = [];
+  for (const t of tokens) lines.push(`${indent}${cssVarName(t.path)}: ${cssValue(t)};`);
+  return lines;
+}
 
 /**
  * Custom properties: the full light set on :root, and only the tokens that
@@ -7,23 +13,22 @@ import { changedTokens, cssValue, cssVarName, GENERATED_HEADER } from './format'
  * `data-theme="light"`; `data-theme="dark"` forces it.
  */
 export function toCss(themes: ThemeSet): string {
-  const decl = (indent: string) => (t: ThemeSet['light'][number]) => `${indent}${cssVarName(t.path)}: ${cssValue(t)};`;
   const dark = changedTokens(themes.light, themes.dark);
 
   return [
     `/* ${GENERATED_HEADER} */`,
     ':root {',
-    ...themes.light.map(decl('  ')),
+    ...declarations(themes.light, '  '),
     '}',
     '',
     '@media (prefers-color-scheme: dark) {',
     '  :root:not([data-theme="light"]) {',
-    ...dark.map(decl('    ')),
+    ...declarations(dark, '    '),
     '  }',
     '}',
     '',
     ':root[data-theme="dark"] {',
-    ...dark.map(decl('  ')),
+    ...declarations(dark, '  '),
     '}',
     '',
   ].join('\n');

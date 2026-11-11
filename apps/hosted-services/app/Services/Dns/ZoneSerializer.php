@@ -38,14 +38,31 @@ final class ZoneSerializer
             $lines[] = sprintf('@ IN NS %s.', Hostname::normalise($ns));
         }
 
-        usort($records, static fn (DnsRecordData $a, DnsRecordData $b) => [$a->name, $a->type->value, $a->priority ?? 0]
-            <=> [$b->name, $b->type->value, $b->priority ?? 0]);
+        usort($records, [self::class, 'compareRecords']);
 
         foreach ($records as $record) {
             $lines[] = $this->line($record, $zone);
         }
 
         return implode("\n", $lines) . "\n";
+    }
+
+    /**
+     * Sort order: name, then type, then priority.
+     */
+    public static function compareRecords(DnsRecordData $a, DnsRecordData $b): int
+    {
+        $byName = $a->name <=> $b->name;
+        if ($byName !== 0) {
+            return $byName;
+        }
+
+        $byType = $a->type->value <=> $b->type->value;
+        if ($byType !== 0) {
+            return $byType;
+        }
+
+        return ($a->priority ?? 0) <=> ($b->priority ?? 0);
     }
 
     public function line(DnsRecordData $record, string $zone): string
@@ -57,19 +74,25 @@ final class ZoneSerializer
 
     public function rdata(DnsRecordData $record): string
     {
-        return match ($record->type) {
-            DnsRecordType::MX => sprintf('%d %s', $record->priority ?? 0, $this->fqdn($record->value)),
-            DnsRecordType::SRV => sprintf(
-                '%d %d %d %s',
-                $record->priority ?? 0,
-                $record->weight ?? 0,
-                $record->port ?? 0,
-                $this->fqdn($record->value),
-            ),
-            DnsRecordType::CNAME, DnsRecordType::NS => $this->fqdn($record->value),
-            DnsRecordType::TXT => $this->quoteTxt($record->value),
-            default => $record->value,
-        };
+        switch ($record->type) {
+            case DnsRecordType::MX:
+                return sprintf('%d %s', $record->priority ?? 0, $this->fqdn($record->value));
+            case DnsRecordType::SRV:
+                return sprintf(
+                    '%d %d %d %s',
+                    $record->priority ?? 0,
+                    $record->weight ?? 0,
+                    $record->port ?? 0,
+                    $this->fqdn($record->value),
+                );
+            case DnsRecordType::CNAME:
+            case DnsRecordType::NS:
+                return $this->fqdn($record->value);
+            case DnsRecordType::TXT:
+                return $this->quoteTxt($record->value);
+            default:
+                return $record->value;
+        }
     }
 
     /**
@@ -77,12 +100,13 @@ final class ZoneSerializer
      */
     public function quoteTxt(string $value): string
     {
-        $chunks = str_split($value, self::TXT_CHUNK);
+        $quoted = [];
+        foreach (str_split($value, self::TXT_CHUNK) as $chunk) {
+            $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $chunk);
+            $quoted[] = '"' . $escaped . '"';
+        }
 
-        return implode(' ', array_map(
-            static fn (string $chunk) => '"' . str_replace(['\\', '"'], ['\\\\', '\\"'], $chunk) . '"',
-            $chunks,
-        ));
+        return implode(' ', $quoted);
     }
 
     private function fqdn(string $host): string

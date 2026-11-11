@@ -124,9 +124,7 @@ export class ApiClient {
   private async send<T>(method: string, path: string, options: RequestOptions): Promise<T> {
     const correlationId = options.correlationId ?? randomUUID();
     const response = await this.raw(method, path, { ...options, correlationId });
-    const expected = options.expectedStatus === undefined ? undefined : [options.expectedStatus].flat();
-    const accepted = expected ? expected.includes(response.status()) : response.ok();
-    if (!accepted) {
+    if (!isAccepted(response, options.expectedStatus)) {
       throw new ApiError(response.status(), await readProblem(response), correlationId);
     }
     if (response.status() === 204) {
@@ -134,6 +132,16 @@ export class ApiClient {
     }
     return (await response.json()) as T;
   }
+}
+
+function isAccepted(response: APIResponse, expectedStatus: number | number[] | undefined): boolean {
+  if (expectedStatus === undefined) {
+    return response.ok();
+  }
+  if (Array.isArray(expectedStatus)) {
+    return expectedStatus.includes(response.status());
+  }
+  return expectedStatus === response.status();
 }
 
 function compactQuery(query: RequestOptions['query']): Record<string, string | number | boolean> | undefined {

@@ -9,6 +9,7 @@ import { AnalyticsProps } from './types';
 
 const SENSITIVE_KEY = /(e-?mail|phone|mobile|name|address|postcode|zip|password|token|secret|iban|card|sort.?code|dob|birth)/i;
 
+// Applied in order: email, 13-19 digit numbers (cards), UK phone, UK postcode, Uniti ids.
 const VALUE_PATTERNS: Array<[RegExp, string]> = [
   [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[EMAIL]'],
   [/\b(?:\d[ -]?){12,18}\d\b/g, '[NUMBER]'],
@@ -18,7 +19,11 @@ const VALUE_PATTERNS: Array<[RegExp, string]> = [
 ];
 
 export function redactValue(value: string): string {
-  return VALUE_PATTERNS.reduce((text, [pattern, replacement]) => text.replace(pattern, replacement), value);
+  let text = value;
+  for (const [pattern, replacement] of VALUE_PATTERNS) {
+    text = text.replace(pattern, replacement);
+  }
+  return text;
 }
 
 export function sanitizeProps(props: AnalyticsProps): AnalyticsProps {
@@ -55,13 +60,14 @@ export function observeMarking(root: ParentNode & Node, selectors: string[], mar
   const apply = (scope: ParentNode) => scope.querySelectorAll(selector).forEach(mark);
   apply(root);
   if (typeof MutationObserver === 'undefined') return () => undefined;
+  const markAdded = (node: Node) => {
+    if (!(node instanceof Element)) return;
+    if (node.matches(selector)) mark(node);
+    apply(node);
+  };
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      mutation.addedNodes.forEach((node) => {
-        if (!(node instanceof Element)) return;
-        if (node.matches(selector)) mark(node);
-        apply(node);
-      });
+      mutation.addedNodes.forEach(markAdded);
     }
   });
   observer.observe(root, { childList: true, subtree: true });

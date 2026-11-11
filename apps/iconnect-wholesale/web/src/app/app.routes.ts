@@ -11,7 +11,7 @@ export class AuthCallbackComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
-  message = 'Signing you in…';
+  message = 'Signing you in\u2026';
 
   async ngOnInit(): Promise<void> {
     const params = this.route.snapshot.queryParamMap;

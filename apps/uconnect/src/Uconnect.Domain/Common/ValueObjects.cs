@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 namespace Uconnect.Domain.Common;
 
 /// <summary>Customer-facing account identifier in the form <c>ACC-########</c>.</summary>
-public sealed partial record AccountNumber
+public sealed record AccountNumber
 {
     private AccountNumber(string value) => Value = value;
 
@@ -28,7 +28,7 @@ public sealed partial record AccountNumber
         }
 
         var candidate = value.Trim().ToUpperInvariant();
-        if (!Pattern().IsMatch(candidate))
+        if (!PatternRegex.IsMatch(candidate))
         {
             return false;
         }
@@ -39,12 +39,11 @@ public sealed partial record AccountNumber
 
     public override string ToString() => Value;
 
-    [GeneratedRegex(@"^ACC-\d{8}$", RegexOptions.CultureInvariant)]
-    private static partial Regex Pattern();
+    private static readonly Regex PatternRegex = new(@"^ACC-\d{8}$", RegexOptions.CultureInvariant);
 }
 
 /// <summary>A syntactically valid, lower-cased e-mail address.</summary>
-public sealed partial record EmailAddress
+public sealed record EmailAddress
 {
     private EmailAddress(string value) => Value = value;
 
@@ -53,7 +52,7 @@ public sealed partial record EmailAddress
     public static EmailAddress Create(string? value)
     {
         var trimmed = value?.Trim().ToLowerInvariant();
-        if (string.IsNullOrEmpty(trimmed) || trimmed.Length > 254 || !Pattern().IsMatch(trimmed))
+        if (string.IsNullOrEmpty(trimmed) || trimmed.Length > 254 || !PatternRegex.IsMatch(trimmed))
         {
             throw new DomainException("email.invalid", "E-mail address is not valid.");
         }
@@ -63,12 +62,11 @@ public sealed partial record EmailAddress
 
     public override string ToString() => Value;
 
-    [GeneratedRegex(@"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$", RegexOptions.CultureInvariant)]
-    private static partial Regex Pattern();
+    private static readonly Regex PatternRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$", RegexOptions.CultureInvariant);
 }
 
 /// <summary>A UK telephone number normalised to E.164 (+44...).</summary>
-public sealed partial record PhoneNumber
+public sealed record PhoneNumber
 {
     private PhoneNumber(string value) => Value = value;
 
@@ -81,17 +79,17 @@ public sealed partial record PhoneNumber
             throw new DomainException("phone.required", "Phone number is required.");
         }
 
-        var digits = NonDigit().Replace(value, string.Empty);
+        var digits = NonDigitRegex.Replace(value, string.Empty);
         if (value.TrimStart().StartsWith('+'))
         {
             digits = "+" + digits;
         }
         else if (digits.StartsWith('0'))
         {
-            digits = "+44" + digits[1..];
+            digits = "+44" + digits.Substring(1);
         }
 
-        if (!E164().IsMatch(digits))
+        if (!E164Regex.IsMatch(digits))
         {
             throw new DomainException("phone.invalid", "Phone number is not valid.");
         }
@@ -101,15 +99,13 @@ public sealed partial record PhoneNumber
 
     public override string ToString() => Value;
 
-    [GeneratedRegex(@"[^\d]")]
-    private static partial Regex NonDigit();
+    private static readonly Regex NonDigitRegex = new(@"[^\d]");
 
-    [GeneratedRegex(@"^\+[1-9]\d{8,14}$")]
-    private static partial Regex E164();
+    private static readonly Regex E164Regex = new(@"^\+[1-9]\d{8,14}$");
 }
 
 /// <summary>A postal address. For services this is the premises where the fibre terminates.</summary>
-public sealed partial record PostalAddress
+public sealed record PostalAddress
 {
     public PostalAddress(string line1, string? line2, string town, string postcode, string countryCode = "GB")
     {
@@ -119,7 +115,7 @@ public sealed partial record PostalAddress
         CountryCode = Guard.NotBlank(countryCode, "address.country", 2).ToUpperInvariant();
 
         var normalisedPostcode = NormalisePostcode(postcode);
-        if (CountryCode == "GB" && !UkPostcode().IsMatch(normalisedPostcode))
+        if (CountryCode == "GB" && !UkPostcodeRegex.IsMatch(normalisedPostcode))
         {
             throw new DomainException("address.postcode_invalid", "Postcode is not a valid UK postcode.");
         }
@@ -137,21 +133,25 @@ public sealed partial record PostalAddress
 
     public string CountryCode { get; }
 
-    /// <summary>The outward code, e.g. "LS1" for "LS1 4AP" — used to match outages to premises.</summary>
+    /// <summary>The outward code, e.g. "LS1" for "LS1 4AP" - used to match outages to premises.</summary>
     public string OutwardCode => Postcode.Split(' ')[0];
 
     public static string NormalisePostcode(string? postcode)
     {
-        var compact = Whitespace().Replace(postcode ?? string.Empty, string.Empty).ToUpperInvariant();
-        return compact.Length > 3 ? $"{compact[..^3]} {compact[^3..]}" : compact;
+        var compact = WhitespaceRegex.Replace(postcode ?? string.Empty, string.Empty).ToUpperInvariant();
+        if (compact.Length <= 3)
+        {
+            return compact;
+        }
+
+        // Inward code is always the last three characters.
+        return compact.Substring(0, compact.Length - 3) + " " + compact.Substring(compact.Length - 3);
     }
 
     public override string ToString() =>
         string.Join(", ", new[] { Line1, Line2, Town, Postcode }.Where(p => !string.IsNullOrEmpty(p)));
 
-    [GeneratedRegex(@"\s+")]
-    private static partial Regex Whitespace();
+    private static readonly Regex WhitespaceRegex = new(@"\s+");
 
-    [GeneratedRegex(@"^[A-Z]{1,2}\d[A-Z\d]? \d[A-Z]{2}$")]
-    private static partial Regex UkPostcode();
+    private static readonly Regex UkPostcodeRegex = new(@"^[A-Z]{1,2}\d[A-Z\d]? \d[A-Z]{2}$");
 }

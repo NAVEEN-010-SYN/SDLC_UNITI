@@ -18,31 +18,9 @@ public struct SettingsView: View {
                 }
             }
 
-            Section {
-                AsyncContentView(state: viewModel.notifications, emptyTitle: "",
-                                 retry: { Task { await viewModel.load() } }) { prefs in
-                    notificationToggle("settings.notify.billing", \.billing, prefs)
-                    notificationToggle("settings.notify.outages", \.outages, prefs)
-                    notificationToggle("settings.notify.appointments", \.appointments, prefs)
-                    notificationToggle("settings.notify.tickets", \.ticketUpdates, prefs)
-                    notificationToggle("settings.notify.marketing", \.marketing, prefs)
-                }
-            } header: {
-                Text(L10n.string("settings.notifications"))
-            } footer: {
-                if viewModel.isSavingNotifications { Text(L10n.string("settings.saving")) }
-            }
+            notificationsSection
 
-            Section(L10n.string("settings.security")) {
-                if viewModel.biometricsAvailable {
-                    Toggle(L10n.string("settings.biometric.\(viewModel.biometry.rawValue)"), isOn: Binding(
-                        get: { viewModel.biometricUnlockEnabled },
-                        set: { enabled in Task { await viewModel.setBiometricUnlock(enabled) } }
-                    ))
-                } else {
-                    Text(L10n.string("settings.biometricUnavailable")).foregroundStyle(.secondary)
-                }
-            }
+            securitySection
 
             Section {
                 Toggle(L10n.string("settings.analytics"), isOn: Binding(
@@ -75,6 +53,36 @@ public struct SettingsView: View {
         }
     }
 
+    private var notificationsSection: some View {
+        Section {
+            AsyncContentView(state: viewModel.notifications, emptyTitle: "",
+                             retry: { Task { await viewModel.load() } }) { prefs in
+                notificationToggle("settings.notify.billing", \.billing, prefs)
+                notificationToggle("settings.notify.outages", \.outages, prefs)
+                notificationToggle("settings.notify.appointments", \.appointments, prefs)
+                notificationToggle("settings.notify.tickets", \.ticketUpdates, prefs)
+                notificationToggle("settings.notify.marketing", \.marketing, prefs)
+            }
+        } header: {
+            Text(L10n.string("settings.notifications"))
+        } footer: {
+            if viewModel.isSavingNotifications { Text(L10n.string("settings.saving")) }
+        }
+    }
+
+    private var securitySection: some View {
+        Section(L10n.string("settings.security")) {
+            if viewModel.biometricsAvailable {
+                Toggle(L10n.string("settings.biometric.\(viewModel.biometry.rawValue)"), isOn: Binding(
+                    get: { viewModel.biometricUnlockEnabled },
+                    set: { enabled in Task { await viewModel.setBiometricUnlock(enabled) } }
+                ))
+            } else {
+                Text(L10n.string("settings.biometricUnavailable")).foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private func notificationToggle(_ key: String, _ keyPath: WritableKeyPath<NotificationPreferences, Bool>,
                                     _ prefs: NotificationPreferences) -> some View {
         Toggle(L10n.string(key), isOn: Binding(
@@ -95,24 +103,7 @@ public struct ProfileView: View {
         Form {
             AsyncContentView(state: viewModel.state, emptyTitle: L10n.string("error.notFound"),
                              retry: { Task { await viewModel.load(forceRefresh: true) } }) { profile in
-                Section {
-                    HStack(spacing: Theme.Spacing.m) {
-                        Text(profile.initials)
-                            .font(Theme.Typography.title)
-                            .frame(width: 56, height: 56)
-                            .background(Theme.Palette.brand.opacity(0.15), in: Circle())
-                        VStack(alignment: .leading) {
-                            Text(profile.displayName).font(Theme.Typography.headline)
-                            Text(profile.accountId.masked).font(.footnote).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                Section(L10n.string("profile.contact")) {
-                    ValidatedField(L10n.string("profile.email"), text: $viewModel.email,
-                                   message: viewModel.fieldErrors["email"], contentType: .email)
-                    ValidatedField(L10n.string("profile.phone"), text: $viewModel.phone,
-                                   message: viewModel.fieldErrors["phone"])
-                }
+                profileSections(profile)
             }
             if let error = viewModel.saveError {
                 Banner(title: L10n.string(error.titleKey), message: error.detail, tone: .danger)
@@ -131,5 +122,27 @@ public struct ProfileView: View {
             }
         }
         .navigationTitle(L10n.string("settings.profile"))
+    }
+
+    @ViewBuilder
+    private func profileSections(_ profile: UserProfile) -> some View {
+        Section {
+            HStack(spacing: Theme.Spacing.m) {
+                Text(profile.initials)
+                    .font(Theme.Typography.title)
+                    .frame(width: 56, height: 56)
+                    .background(Theme.Palette.brand.opacity(0.15), in: Circle())
+                VStack(alignment: .leading) {
+                    Text(profile.displayName).font(Theme.Typography.headline)
+                    Text(profile.accountId.masked).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+        }
+        Section(L10n.string("profile.contact")) {
+            ValidatedField(L10n.string("profile.email"), text: $viewModel.email,
+                           message: viewModel.fieldErrors["email"], contentType: .email)
+            ValidatedField(L10n.string("profile.phone"), text: $viewModel.phone,
+                           message: viewModel.fieldErrors["phone"])
+        }
     }
 }

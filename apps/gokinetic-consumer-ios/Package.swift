@@ -1,6 +1,6 @@
 // swift-tools-version:5.9
 //
-// Go Kinetic Consumer iOS app — Swift package layout.
+// Go Kinetic Consumer iOS app - Swift package layout.
 //
 // The Xcode app target (see `App/`) is a thin shell that depends on these
 // library products. Splitting the code into packages keeps the business

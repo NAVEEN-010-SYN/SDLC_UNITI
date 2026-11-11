@@ -2,7 +2,7 @@ import { InvalidStateTransitionError } from '../../lib/errors';
 import { OrderStatus } from './orders.types';
 
 /**
- * Order lifecycle: DRAFT → SUBMITTED → VALIDATED → PROVISIONING → ACTIVE,
+ * Order lifecycle: DRAFT -> SUBMITTED -> VALIDATED -> PROVISIONING -> ACTIVE,
  * with CANCELLED available to the customer until provisioning starts and FAILED
  * set by validation (rejection) or provisioning.
  */

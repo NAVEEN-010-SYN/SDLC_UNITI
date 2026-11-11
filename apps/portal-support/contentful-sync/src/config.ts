@@ -16,6 +16,12 @@ export interface Config {
 
 export class ConfigError extends Error {}
 
+/** Trimmed env value, or the fallback when unset or blank. */
+function optionalString(env: NodeJS.ProcessEnv, name: string, fallback: string): string {
+  const value = (env[name] ?? '').trim();
+  return value === '' ? fallback : value;
+}
+
 /**
  * Reads and validates configuration from the environment. Fails fast at
  * start-up listing every problem, rather than at the first request.
@@ -24,9 +30,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const problems: string[] = [];
 
   const required = (name: string): string => {
-    const value = env[name]?.trim();
+    const value = (env[name] ?? '').trim();
     if (!value) problems.push(`${name} is required`);
-    return value ?? '';
+    return value;
   };
   const integer = (name: string, fallback: number, min: number, max: number): number => {
     const raw = env[name];
@@ -47,10 +53,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const config: Config = {
     contentful: {
       spaceId: required('CONTENTFUL_SPACE_ID'),
-      environment: env.CONTENTFUL_ENVIRONMENT?.trim() || 'master',
+      environment: optionalString(env, 'CONTENTFUL_ENVIRONMENT', 'master'),
       deliveryToken: required('CONTENTFUL_DELIVERY_TOKEN'),
-      cdnHost: env.CONTENTFUL_CDN_HOST?.trim() || 'cdn.contentful.com',
-      defaultLocale: env.CONTENTFUL_DEFAULT_LOCALE?.trim() || 'en-US',
+      cdnHost: optionalString(env, 'CONTENTFUL_CDN_HOST', 'cdn.contentful.com'),
+      defaultLocale: optionalString(env, 'CONTENTFUL_DEFAULT_LOCALE', 'en-US'),
     },
     webhook: {
       secret: required('CONTENTFUL_WEBHOOK_SECRET'),
@@ -59,9 +65,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     searchIndex: {
       url: searchUrl,
       apiKey: required('SEARCH_INDEX_API_KEY'),
-      indexName: env.SEARCH_INDEX_NAME?.trim() || 'support-content',
+      indexName: optionalString(env, 'SEARCH_INDEX_NAME', 'support-content'),
     },
-    syncStateFile: env.SYNC_STATE_FILE?.trim() || './.sync-state.json',
+    syncStateFile: optionalString(env, 'SYNC_STATE_FILE', './.sync-state.json'),
     syncIntervalSeconds: integer('SYNC_INTERVAL_SECONDS', 900, 60, 86400),
     port: integer('PORT', 8080, 1, 65535),
     logLevel,

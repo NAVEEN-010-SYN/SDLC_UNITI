@@ -72,11 +72,14 @@ class HostedDomainRepository extends AccountScopedRepository
      */
     public function recordData(string $domainId): array
     {
-        return DnsRecord::query()
-            ->where('hosted_domain_id', $domainId)
-            ->get()
-            ->map(static fn (DnsRecord $r) => DnsRecordData::fromModel($r))
-            ->all();
+        $records = DnsRecord::query()->where('hosted_domain_id', $domainId)->get();
+
+        $result = [];
+        foreach ($records as $record) {
+            $result[] = DnsRecordData::fromModel($record);
+        }
+
+        return $result;
     }
 
     public function getRecord(string $domainId, string $recordId): DnsRecord

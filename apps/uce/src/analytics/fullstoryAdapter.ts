@@ -73,8 +73,10 @@ export class FullStoryAdapter implements AnalyticsAdapter {
     this.win._fs_org = this.options.orgId;
     this.win._fs_namespace = 'FS';
     if (!this.win.FS) {
+      // Queues calls until fs.js loads and replays them.
       const stub: FsFn = (operation, payload) => {
-        (stub.q = stub.q ?? []).push([operation, payload]);
+        if (!stub.q) stub.q = [];
+        stub.q.push([operation, payload]);
         return undefined;
       };
       this.win.FS = stub;
@@ -93,10 +95,9 @@ export class FullStoryAdapter implements AnalyticsAdapter {
 
   identify(identity: AnalyticsIdentity): void {
     if (!this.active) return;
-    this.win.FS?.('setIdentity', {
-      uid: identity.userKey,
-      properties: { segment: identity.segment, roles: identity.roles.join(','), ...(identity.accountKey ? { accountKey: identity.accountKey } : {}) },
-    });
+    const properties: Record<string, string> = { segment: identity.segment, roles: identity.roles.join(',') };
+    if (identity.accountKey) properties.accountKey = identity.accountKey;
+    this.win.FS?.('setIdentity', { uid: identity.userKey, properties });
   }
 
   track(event: string, props: AnalyticsProps): void {
@@ -106,10 +107,9 @@ export class FullStoryAdapter implements AnalyticsAdapter {
 
   page(props: PageProperties): void {
     if (!this.active) return;
-    this.win.FS?.('setProperties', {
-      type: 'page',
-      properties: { pageName: props.pageType, ...(props.portal ? { portal: props.portal } : {}) },
-    });
+    const properties: Record<string, string> = { pageName: props.pageType };
+    if (props.portal) properties.portal = props.portal;
+    this.win.FS?.('setProperties', { type: 'page', properties });
   }
 
   private applyPrivacyClasses(): void {

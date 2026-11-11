@@ -45,6 +45,17 @@ export function backoffDelay(attempt: number, baseMs = 150, capMs = 2000, random
   return Math.round(exp / 2 + random() * (exp / 2));
 }
 
+function buildHeaders(ctx: RequestContext, hasBody: boolean, idempotencyKey?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'X-Correlation-Id': ctx.correlationId,
+  };
+  if (hasBody) headers['Content-Type'] = 'application/json';
+  if (ctx.bearerToken) headers.Authorization = `Bearer ${ctx.bearerToken}`;
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  return headers;
+}
+
 export class HttpClient {
   private readonly fetcher: Fetcher;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -71,13 +82,8 @@ export class HttpClient {
     idempotencyKey?: string,
   ): Promise<T> {
     const url = this.buildUrl(path, query);
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'X-Correlation-Id': ctx.correlationId,
-    };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
-    if (ctx.bearerToken) headers.Authorization = `Bearer ${ctx.bearerToken}`;
-    if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    const headers = buildHeaders(ctx, body !== undefined, idempotencyKey);
+    const payload = body === undefined ? undefined : JSON.stringify(body);
 
     const canRetry = IDEMPOTENT.has(method) || idempotencyKey !== undefined;
     const maxAttempts = canRetry ? this.options.retries + 1 : 1;
@@ -85,31 +91,16 @@ export class HttpClient {
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       if (attempt > 0) await this.sleep(backoffDelay(attempt - 1));
-      const started = Date.now();
       try {
-        const response = await this.withTimeout((signal) =>
-          this.fetcher(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal }),
-        );
-        this.options.logger.debug('downstream call', {
-          service: this.options.serviceName,
-          method,
-          path,
-          status: response.status,
-          durationMs: Date.now() - started,
-          attempt,
-          correlationId: ctx.correlationId,
-        });
+        const response = await this.send(method, url, path, headers, payload, attempt, ctx);
         if (response.ok) {
-          return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+          return await this.readBody<T>(response);
         }
         lastError = new DownstreamError(this.options.serviceName, response.status, await this.describe(response));
         if (!lastError.retryable) throw lastError;
       } catch (error) {
         if (error instanceof DownstreamError && !error.retryable) throw error;
-        lastError =
-          error instanceof DownstreamError
-            ? error
-            : new DownstreamError(this.options.serviceName, undefined, error instanceof Error ? error.message : String(error));
+        lastError = this.toDownstreamError(error);
         this.options.logger.warn('downstream attempt failed', {
           service: this.options.serviceName,
           method,
@@ -123,6 +114,41 @@ export class HttpClient {
     throw lastError ?? new DownstreamError(this.options.serviceName, undefined, 'request failed');
   }
 
+  /** Performs one fetch attempt with a timeout and logs its outcome. */
+  private async send(
+    method: string,
+    url: string,
+    path: string,
+    headers: Record<string, string>,
+    payload: string | undefined,
+    attempt: number,
+    ctx: RequestContext,
+  ): Promise<HttpResponse> {
+    const started = Date.now();
+    const response = await this.withTimeout((signal) => this.fetcher(url, { method, headers, body: payload, signal }));
+    this.options.logger.debug('downstream call', {
+      service: this.options.serviceName,
+      method,
+      path,
+      status: response.status,
+      durationMs: Date.now() - started,
+      attempt,
+      correlationId: ctx.correlationId,
+    });
+    return response;
+  }
+
+  private async readBody<T>(response: HttpResponse): Promise<T> {
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+
+  private toDownstreamError(error: unknown): DownstreamError {
+    if (error instanceof DownstreamError) return error;
+    const message = error instanceof Error ? error.message : String(error);
+    return new DownstreamError(this.options.serviceName, undefined, message);
+  }
+
   private buildUrl(path: string, query?: Record<string, string | number | undefined>): string {
     const base = this.options.baseUrl.replace(/\/+$/, '');
     const suffix = path.startsWith('/') ? path : `/${path}`;
@@ -131,7 +157,8 @@ export class HttpClient {
       if (value !== undefined) params.append(key, String(value));
     }
     const qs = params.toString();
-    return `${base}${suffix}${qs ? `?${qs}` : ''}`;
+    if (!qs) return `${base}${suffix}`;
+    return `${base}${suffix}?${qs}`;
   }
 
   private async withTimeout<R>(run: (signal: AbortSignal) => Promise<R>): Promise<R> {

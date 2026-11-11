@@ -120,13 +120,7 @@ final class ExtensionService
             );
         }
 
-        $forwardedFrom = CallForwardingRule::query()
-            ->join('extensions', 'extensions.id', '=', 'call_forwarding_rules.extension_id')
-            ->where('extensions.account_id', $accountId)
-            ->where('call_forwarding_rules.destination_type', CallForwardingRule::DEST_EXTENSION)
-            ->where('call_forwarding_rules.destination', $extension->number)
-            ->pluck('extensions.number')
-            ->all();
+        $forwardedFrom = $this->extensionsForwardingTo($accountId, $extension->number);
         if ($forwardedFrom !== []) {
             throw new BusinessRuleException(
                 'Other extensions forward calls to this one: ' . implode(', ', $forwardedFrom) . '.',
@@ -179,6 +173,20 @@ final class ExtensionService
         $this->voice->replaceForwardingRules((string) $extension->external_ref, $saved);
 
         return $saved;
+    }
+
+    /**
+     * @return list<string> Numbers of extensions that forward to $number.
+     */
+    private function extensionsForwardingTo(string $accountId, string $number): array
+    {
+        $query = CallForwardingRule::query()
+            ->join('extensions', 'extensions.id', '=', 'call_forwarding_rules.extension_id')
+            ->where('extensions.account_id', $accountId)
+            ->where('call_forwarding_rules.destination_type', CallForwardingRule::DEST_EXTENSION)
+            ->where('call_forwarding_rules.destination', $number);
+
+        return $query->pluck('extensions.number')->all();
     }
 
     private function assertCallerIdUsable(string $accountId, string $numberId): void

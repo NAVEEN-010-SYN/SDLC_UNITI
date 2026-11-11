@@ -59,19 +59,21 @@ public sealed class ApiKeyService
         }
 
         var days = request.ValidForDays ?? DefaultValidityDays;
-        new ValidationBuilder()
-            .Require(days is >= 1 and <= 365, "validForDays", "Validity must be between 1 and 365 days.")
-            .Require(request.Scopes is { Count: > 0 }, "scopes", "Select at least one scope.")
-            .ThrowIfInvalid();
+        var v = new ValidationBuilder();
+        v.Require(days >= 1 && days <= 365, "validForDays", "Validity must be between 1 and 365 days.");
+        v.Require(request.Scopes is not null && request.Scopes.Count > 0, "scopes", "Select at least one scope.");
+        v.ThrowIfInvalid();
 
         var now = _clock.UtcNow;
         var existing = await _keys.ListForPartnerAsync(_caller.PartnerId, ct);
-        if (existing.Count(k => k.IsUsable(now)) >= ApiKey.MaxActiveKeysPerPartner)
+        var usable = existing.Where(k => k.IsUsable(now)).ToList();
+        if (usable.Count >= ApiKey.MaxActiveKeysPerPartner)
         {
             throw new ConflictException("apikey.limit", $"A partner can hold at most {ApiKey.MaxActiveKeysPerPartner} active keys; revoke one first.");
         }
 
-        if (existing.Any(k => k.IsUsable(now) && string.Equals(k.Name, request.Name?.Trim(), StringComparison.OrdinalIgnoreCase)))
+        var requestedName = request.Name?.Trim();
+        if (usable.Any(k => string.Equals(k.Name, requestedName, StringComparison.OrdinalIgnoreCase)))
         {
             throw new ConflictException("apikey.duplicate_name", "An active key with this name already exists.");
         }
@@ -178,7 +180,29 @@ public sealed class ApiKeyService
         return new string(chars);
     }
 
-    private static ApiKeyDto ToDto(ApiKey k, DateTimeOffset now) => new(
-        k.Id, k.Name, TokenPrefix + k.Prefix, k.Scopes, k.CreatedAt, k.ExpiresAt, k.RevokedAt, k.LastUsedAt,
-        k.RevokedAt is not null ? "REVOKED" : k.ExpiresAt <= now ? "EXPIRED" : k.ExpiresAt - now < TimeSpan.FromDays(14) ? "EXPIRING" : "ACTIVE");
+    private static ApiKeyDto ToDto(ApiKey k, DateTimeOffset now)
+    {
+        return new ApiKeyDto(k.Id, k.Name, TokenPrefix + k.Prefix, k.Scopes, k.CreatedAt, k.ExpiresAt, k.RevokedAt, k.LastUsedAt,
+            DisplayStatus(k, now));
+    }
+
+    private static string DisplayStatus(ApiKey k, DateTimeOffset now)
+    {
+        if (k.RevokedAt is not null)
+        {
+            return "REVOKED";
+        }
+
+        if (k.ExpiresAt <= now)
+        {
+            return "EXPIRED";
+        }
+
+        if (k.ExpiresAt - now < TimeSpan.FromDays(14))
+        {
+            return "EXPIRING";
+        }
+
+        return "ACTIVE";
+    }
 }

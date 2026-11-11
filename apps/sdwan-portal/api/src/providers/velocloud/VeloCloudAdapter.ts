@@ -33,6 +33,16 @@ const LINK_METRICS = ['bestLatencyMsRx', 'bestJitterMsRx', 'bestLossPctRx', 'byt
 /** Only the global segment is customer-managed in the managed service. */
 const GLOBAL_SEGMENT_ID = 0;
 
+function siteAddress(e: VcoEdge): DiscoveredSite['address'] {
+  if (!e.site) return undefined;
+  return {
+    line1: e.site.streetAddress ?? '',
+    city: e.site.city ?? '',
+    postcode: e.site.postalCode ?? '',
+    country: e.site.country ?? 'GB',
+  };
+}
+
 export class VeloCloudAdapter implements SdwanProvider {
   readonly vendor = 'VELOCLOUD' as const;
 
@@ -66,14 +76,7 @@ export class VeloCloudAdapter implements SdwanProvider {
       sites.set(e.siteId, {
         vendorId: String(e.siteId),
         name: e.site?.name ?? e.name,
-        address: e.site
-          ? {
-              line1: e.site.streetAddress ?? '',
-              city: e.site.city ?? '',
-              postcode: e.site.postalCode ?? '',
-              country: e.site.country ?? 'GB',
-            }
-          : undefined,
+        address: siteAddress(e),
         edgeVendorIds: [String(e.id)],
       });
     }

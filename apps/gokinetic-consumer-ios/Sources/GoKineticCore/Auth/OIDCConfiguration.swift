@@ -1,7 +1,7 @@
 import Foundation
 
 /// Static OIDC client settings. Values come from Info.plist build settings
-/// (populated per environment via xcconfig) — never hard-coded secrets. A
+/// (populated per environment via xcconfig) - never hard-coded secrets. A
 /// public mobile client has no client secret; PKCE protects the code.
 public struct OIDCConfiguration: Sendable, Equatable {
     public let issuer: URL

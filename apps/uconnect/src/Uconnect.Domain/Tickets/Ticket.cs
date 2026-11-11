@@ -3,7 +3,7 @@ using Uconnect.Domain.Common;
 namespace Uconnect.Domain.Tickets;
 
 /// <summary>
-/// A support case. Status flow: <c>OPEN → IN_PROGRESS → PENDING_CUSTOMER → RESOLVED → CLOSED</c>.
+/// A support case. Status flow: <c>OPEN -> IN_PROGRESS -> PENDING_CUSTOMER -> RESOLVED -> CLOSED</c>.
 /// SLA clocks (first response and resolution) run from creation and are paused while the ticket
 /// waits on the customer. A resolved ticket can be reopened by the customer within
 /// <see cref="ReopenWindowDays"/> days, after which it closes automatically.
@@ -217,7 +217,7 @@ public sealed class Ticket : AggregateRoot
 
     /// <summary>
     /// Escalates to a higher priority (lower P-number). SLA targets are recalculated from creation time,
-    /// which may put the ticket immediately into breach — that is intentional and visible to supervisors.
+    /// which may put the ticket immediately into breach - that is intentional and visible to supervisors.
     /// </summary>
     public void Escalate(TicketPriority newPriority, string reason, Guid agentId, string agentName, DateTimeOffset now)
     {
@@ -238,12 +238,20 @@ public sealed class Ticket : AggregateRoot
     }
 
     /// <summary>True when the ticket should be auto-closed by the housekeeping job.</summary>
-    public bool IsDueForAutoClose(DateTimeOffset now) => Status switch
+    public bool IsDueForAutoClose(DateTimeOffset now)
     {
-        TicketStatus.Resolved => ResolvedAt is { } r && (now - r).TotalDays > ReopenWindowDays,
-        TicketStatus.PendingCustomer => (now - LastActivityAt).TotalDays > PendingCustomerAutoCloseDays,
-        _ => false,
-    };
+        if (Status == TicketStatus.Resolved)
+        {
+            return ResolvedAt.HasValue && (now - ResolvedAt.Value).TotalDays > ReopenWindowDays;
+        }
+
+        if (Status == TicketStatus.PendingCustomer)
+        {
+            return (now - LastActivityAt).TotalDays > PendingCustomerAutoCloseDays;
+        }
+
+        return false;
+    }
 
     private TicketComment AppendComment(Guid authorId, string authorName, string body, bool isAgent, bool isInternal, DateTimeOffset now)
     {

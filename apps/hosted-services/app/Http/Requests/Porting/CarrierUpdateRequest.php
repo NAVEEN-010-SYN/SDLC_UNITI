@@ -26,9 +26,14 @@ final class CarrierUpdateRequest extends ApiFormRequest
 
     public function rules(): array
     {
+        $statuses = [];
+        foreach (self::CARRIER_STATUSES as $status) {
+            $statuses[] = $status->value;
+        }
+
         return [
             'reference' => ['required', 'string', 'max:64'],
-            'status' => ['required', Rule::in(array_map(static fn (PortingStatus $s) => $s->value, self::CARRIER_STATUSES))],
+            'status' => ['required', Rule::in($statuses)],
             'foc_at' => ['nullable', 'date', 'required_if:status,FOC_RECEIVED'],
             'reason' => ['nullable', 'string', 'max:500', 'required_if:status,REJECTED,FAILED'],
         ];

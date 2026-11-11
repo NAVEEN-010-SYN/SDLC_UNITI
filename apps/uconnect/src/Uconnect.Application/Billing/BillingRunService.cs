@@ -198,17 +198,40 @@ public sealed class BillingRunService
 
     private async Task<IReadOnlyList<(Service Service, Plan Plan)>> LoadBillableServicesAsync(Guid accountId, BillingPeriod period, CancellationToken ct)
     {
-        var services = (await _services.ListByAccountAsync(accountId, ct))
-            .Where(s => s.ActivatedOn is { } activated && activated < period.End)
-            .Where(s => s.CancelledOn is not { } cancelled || cancelled > period.Start.AddMonths(-1))
-            .ToList();
+        var services = new List<Service>();
+        foreach (var service in await _services.ListByAccountAsync(accountId, ct))
+        {
+            if (IsBillableInPeriod(service, period))
+            {
+                services.Add(service);
+            }
+        }
+
         if (services.Count == 0)
         {
             return Array.Empty<(Service, Plan)>();
         }
 
-        var plans = (await _plans.GetManyAsync(services.Select(s => s.PlanId).Distinct(), ct)).ToDictionary(p => p.Id);
-        return services.Select(s => (Service: s, Plan: plans[s.PlanId])).ToList();
+        var planIds = services.Select(s => s.PlanId).Distinct();
+        var plans = (await _plans.GetManyAsync(planIds, ct)).ToDictionary(p => p.Id);
+        var result = new List<(Service Service, Plan Plan)>();
+        foreach (var service in services)
+        {
+            result.Add((service, plans[service.PlanId]));
+        }
+
+        return result;
+    }
+
+    /// <summary>Activated before the period ends and not cancelled before the previous cycle started.</summary>
+    private static bool IsBillableInPeriod(Service service, BillingPeriod period)
+    {
+        if (service.ActivatedOn == null || service.ActivatedOn.Value >= period.End)
+        {
+            return false;
+        }
+
+        return service.CancelledOn == null || service.CancelledOn.Value > period.Start.AddMonths(-1);
     }
 
     /// <summary>Overage is billed in arrears: usage in the previous cycle above the plan's allowance.</summary>

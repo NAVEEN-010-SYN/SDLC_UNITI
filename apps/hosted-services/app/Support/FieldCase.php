@@ -39,10 +39,16 @@ final class FieldCase
      */
     public static function camelPath(string $path): string
     {
-        return implode('.', array_map(
-            static fn (string $segment) => ctype_digit($segment) || $segment === '*' ? $segment : Str::camel($segment),
-            explode('.', $path),
-        ));
+        $segments = [];
+        foreach (explode('.', $path) as $segment) {
+            if (ctype_digit($segment) || $segment === '*') {
+                $segments[] = $segment;
+            } else {
+                $segments[] = Str::camel($segment);
+            }
+        }
+
+        return implode('.', $segments);
     }
 
     /**

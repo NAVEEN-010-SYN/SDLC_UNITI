@@ -28,7 +28,13 @@ final class RequireRole
             return $next($request);
         }
 
-        $roles = array_filter(array_map(static fn (string $r) => Role::tryFrom($r), $required));
+        $roles = [];
+        foreach ($required as $name) {
+            $role = Role::tryFrom($name);
+            if ($role !== null) {
+                $roles[] = $role;
+            }
+        }
         if ($roles !== [] && !$principal->hasRole(...$roles)) {
             throw new AccessDeniedException(
                 'This action requires one of the roles: ' . implode(', ', $required) . '.',

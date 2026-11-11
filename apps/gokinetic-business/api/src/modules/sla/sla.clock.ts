@@ -40,7 +40,7 @@ export function alignToBusinessHours(start: Date): Date {
   return t;
 }
 
-/** Adds business minutes (Mon–Fri 08:00–18:00 UTC) to a start time. */
+/** Adds business minutes (Mon-Fri 08:00-18:00 UTC) to a start time. */
 export function addBusinessMinutes(start: Date, minutes: number): Date {
   let t = alignToBusinessHours(start);
   let remaining = minutes;

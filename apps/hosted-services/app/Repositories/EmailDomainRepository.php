@@ -60,9 +60,12 @@ class EmailDomainRepository extends AccountScopedRepository
             $query->whereKeyNot($excludeMailboxId);
         }
 
-        return $query->get(['quota_mb', 'used_mb'])
-            ->map(static fn (Mailbox $m) => ['quota_mb' => $m->quota_mb, 'used_mb' => $m->used_mb])
-            ->all();
+        $rows = [];
+        foreach ($query->get(['quota_mb', 'used_mb']) as $mailbox) {
+            $rows[] = ['quota_mb' => $mailbox->quota_mb, 'used_mb' => $mailbox->used_mb];
+        }
+
+        return $rows;
     }
 
     /**

@@ -16,11 +16,14 @@ export interface DiffEntry {
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  const keys = Object.keys(value as Record<string, unknown>).sort();
-  return `{${keys
-    .filter((k) => (value as Record<string, unknown>)[k] !== undefined)
-    .map((k) => `${JSON.stringify(k)}:${canonicalJson((value as Record<string, unknown>)[k])}`)
-    .join(',')}}`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts: string[] = [];
+  for (const k of keys) {
+    if (obj[k] === undefined) continue;
+    parts.push(`${JSON.stringify(k)}:${canonicalJson(obj[k])}`);
+  }
+  return `{${parts.join(',')}}`;
 }
 
 export function checksum(value: unknown): string {

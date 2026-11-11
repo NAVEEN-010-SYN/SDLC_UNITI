@@ -1,7 +1,7 @@
 import Foundation
 
 /// Composition root. Every dependency a view model needs is created here
-/// once and handed down explicitly — no singletons reached from features.
+/// once and handed down explicitly - no singletons reached from features.
 public final class DependencyContainer: @unchecked Sendable {
     public let environment: AppEnvironment
     public let clock: Clock

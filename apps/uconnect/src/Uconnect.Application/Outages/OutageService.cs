@@ -4,6 +4,7 @@ using Uconnect.Application.Abstractions;
 using Uconnect.Application.Common;
 using Uconnect.Domain.Common;
 using Uconnect.Domain.Outages;
+using Uconnect.Domain.Services;
 
 namespace Uconnect.Application.Outages;
 
@@ -70,14 +71,36 @@ public sealed class OutageService
         }
 
         var outages = await _outages.ListCurrentAsync(_clock.UtcNow - RecentlyResolvedWindow, ct);
-        return outages
-            .Select(o => (Outage: o, Affected: services.Where(s => o.Affects(s.ServiceAddress)).Select(s => s.ServiceReference).ToList()))
-            .Where(x => x.Affected.Count > 0)
-            .OrderBy(x => x.Outage.IsResolved)
-            .ThenByDescending(x => x.Outage.Severity)
-            .ThenByDescending(x => x.Outage.StartedAt)
-            .Select(x => new AccountOutageDto(x.Outage.ToDto(), x.Affected))
-            .ToList();
+        var ordered = outages
+            .OrderBy(o => o.IsResolved)
+            .ThenByDescending(o => o.Severity)
+            .ThenByDescending(o => o.StartedAt);
+
+        var result = new List<AccountOutageDto>();
+        foreach (var outage in ordered)
+        {
+            var affected = AffectedServiceReferences(outage, services);
+            if (affected.Count > 0)
+            {
+                result.Add(new AccountOutageDto(outage.ToDto(), affected));
+            }
+        }
+
+        return result;
+    }
+
+    private static List<string> AffectedServiceReferences(Outage outage, IEnumerable<Service> services)
+    {
+        var references = new List<string>();
+        foreach (var service in services)
+        {
+            if (outage.Affects(service.ServiceAddress))
+            {
+                references.Add(service.ServiceReference);
+            }
+        }
+
+        return references;
     }
 
     public async Task<OutageDto> DeclareAsync(DeclareOutageRequest request, CancellationToken ct)

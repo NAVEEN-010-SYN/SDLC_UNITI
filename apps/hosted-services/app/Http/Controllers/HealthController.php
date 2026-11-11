@@ -21,9 +21,14 @@ final class HealthController extends Controller
         $checks = ['database' => $this->database()];
         $healthy = !in_array(false, $checks, true);
 
+        $checkStatus = [];
+        foreach ($checks as $name => $ok) {
+            $checkStatus[$name] = $ok ? 'UP' : 'DOWN';
+        }
+
         return new JsonResponse([
             'status' => $healthy ? 'UP' : 'DOWN',
-            'checks' => array_map(static fn (bool $ok) => $ok ? 'UP' : 'DOWN', $checks),
+            'checks' => $checkStatus,
             'time' => gmdate('Y-m-d\TH:i:s\Z'),
         ], $healthy ? 200 : 503, ['Cache-Control' => 'no-store']);
     }

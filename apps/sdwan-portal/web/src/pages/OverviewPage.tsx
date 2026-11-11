@@ -15,14 +15,14 @@ const columns: Column<Edge>[] = [
   { key: 'name', header: 'Edge', render: (e) => <Link to={`/edges/${encodeURIComponent(e.id)}`}>{e.name}</Link> },
   { key: 'status', header: 'Status', render: (e) => <StatusPill value={e.status} label={EDGE_STATUS_LABEL[e.status]} /> },
   { key: 'vendor', header: 'Vendor', render: (e) => VENDOR_LABEL[e.vendor] },
-  { key: 'model', header: 'Model', render: (e) => `${e.model} · ${e.softwareVersion}` },
+  { key: 'model', header: 'Model', render: (e) => `${e.model} \u00B7 ${e.softwareVersion}` },
   {
     key: 'links',
     header: 'WAN links',
     render: (e) => {
       const down = e.links.filter((l) => l.state === 'DOWN').length;
       const capacity = e.links.reduce((a, l) => a + l.bandwidthDownKbps, 0);
-      return `${e.links.length - down}/${e.links.length} up · ${formatKbps(capacity)}`;
+      return `${e.links.length - down}/${e.links.length} up \u00B7 ${formatKbps(capacity)}`;
     },
   },
   { key: 'ha', header: 'HA', render: (e) => (e.haState === 'STANDALONE' ? 'None' : <StatusPill value={e.haState === 'FAILED' ? 'DOWN' : 'UP'} label={e.haState.toLowerCase()} />) },

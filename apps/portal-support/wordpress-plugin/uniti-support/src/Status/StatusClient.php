@@ -38,7 +38,12 @@ final class StatusClient
             return is_array($stale) ? $stale : [];
         }
 
-        $items = array_values(array_filter($body['items'], 'is_array'));
+        $items = [];
+        foreach ($body['items'] as $item) {
+            if (is_array($item)) {
+                $items[] = $item;
+            }
+        }
         set_transient(self::CACHE_KEY, $items, $this->options->int('status_cache_seconds'));
         update_option(self::STALE_KEY, $items, false);
 

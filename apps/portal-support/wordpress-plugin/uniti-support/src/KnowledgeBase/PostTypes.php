@@ -64,8 +64,18 @@ final class PostTypes
             'single' => true,
             'default' => 'all',
             'show_in_rest' => ['schema' => ['enum' => self::AUDIENCES]],
-            'sanitize_callback' => static fn ($value) => in_array($value, self::AUDIENCES, true) ? $value : 'all',
-            'auth_callback' => static fn () => current_user_can('edit_posts'),
+            'sanitize_callback' => [self::class, 'sanitizeAudience'],
+            'auth_callback' => [self::class, 'canEditAudience'],
         ]);
+    }
+
+    public static function sanitizeAudience(mixed $value): mixed
+    {
+        return in_array($value, self::AUDIENCES, true) ? $value : 'all';
+    }
+
+    public static function canEditAudience(): bool
+    {
+        return current_user_can('edit_posts');
     }
 }

@@ -17,12 +17,12 @@ import { MoneyPipe, ProblemComponent, StatusLabelPipe } from '../shared/shared';
     @if (summary(); as s) {
       <div class="tiles">
         <div class="card"><div class="muted">Orders in flight</div><strong>{{ s.openOrders }}</strong>
-          <div>{{ s.ordersAtRisk }} at risk · {{ s.ordersBreached }} breached</div></div>
+          <div>{{ s.ordersAtRisk }} at risk &middot; {{ s.ordersBreached }} breached</div></div>
         <div class="card"><div class="muted">Open faults</div><strong>{{ s.openFaults }}</strong>
-          <div>{{ s.faultsAtRisk }} at risk · {{ s.faultsBreached }} breached</div></div>
+          <div>{{ s.faultsAtRisk }} at risk &middot; {{ s.faultsBreached }} breached</div></div>
         <div class="card"><div class="muted">Credits since {{ s.periodStart | date: 'd MMM' }}</div>
           <strong>{{ s.faultCreditsMinor + s.lateDeliveryCreditsMinor | money: s.currency }}</strong>
-          <div>faults {{ s.faultCreditsMinor | money: s.currency }} · late delivery {{ s.lateDeliveryCreditsMinor | money: s.currency }}</div></div>
+          <div>faults {{ s.faultCreditsMinor | money: s.currency }} &middot; late delivery {{ s.lateDeliveryCreditsMinor | money: s.currency }}</div></div>
       </div>
       <h2>Needs attention</h2>
       <table>
@@ -67,7 +67,16 @@ export class SlaPage {
   private readonly api = inject(SlaApi);
   readonly priorities = ['P1', 'P2', 'P3', 'P4'];
   readonly problem = signal<ApiProblem | null>(null);
-  readonly summary = toSignal<SlaSummary | null>(this.api.summary().pipe(catchError((p: ApiProblem) => (this.problem.set(p), of(null)))), { initialValue: null });
+  readonly summary = toSignal<SlaSummary | null>(
+    this.api.summary().pipe(
+      catchError((p: ApiProblem) => {
+        this.problem.set(p);
+        return of(null);
+      }),
+    ),
+    { initialValue: null },
+  );
+
   readonly policy = toSignal<SlaPolicy | null>(this.api.policy().pipe(catchError(() => of(null))), { initialValue: null });
 
   careLevels(p: SlaPolicy): string[] {

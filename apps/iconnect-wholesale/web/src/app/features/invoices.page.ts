@@ -56,7 +56,7 @@ import { MoneyPipe, PaginatorComponent, ProblemComponent, StatusLabelPipe, parse
       }
       @for (x of d.disputes; track x.id) {
         <p>{{ x.reference }} <span class="badge">{{ x.status | statusLabel }}</span> claimed {{ x.claimedMinor | money: d.currency }}
-          @if (x.awardedMinor !== null) { · awarded {{ x.awardedMinor | money: d.currency }}: {{ x.outcome }} }</p>
+          @if (x.awardedMinor !== null) { &middot; awarded {{ x.awardedMinor | money: d.currency }}: {{ x.outcome }} }</p>
       }
     }
   `,
@@ -70,8 +70,17 @@ export class InvoicesPage implements OnInit {
   claim = '';
   reason = '';
 
-  readonly selectedTotal = computed(() =>
-    (this.detail()?.lines ?? []).filter((l) => this.selected().has(l.id)).reduce((sum, l) => sum + l.amountMinor, 0));
+  readonly selectedTotal = computed(() => {
+    const lines = this.detail()?.lines ?? [];
+    const selected = this.selected();
+    let sum = 0;
+    for (const l of lines) {
+      if (selected.has(l.id)) {
+        sum += l.amountMinor;
+      }
+    }
+    return sum;
+  });
 
   ngOnInit(): void {
     this.load(1);

@@ -46,7 +46,7 @@ public final class LivePlanRepository: PlanRepository {
         try await client.send(PlanEndpoints.current(serviceId: serviceId))
     }
 
-    /// Plans offered at the service address, sorted slowest → fastest so the
+    /// Plans offered at the service address, sorted slowest -> fastest so the
     /// upgrade picker reads naturally.
     public func availablePlans(serviceId: String) async throws -> [Plan] {
         let client = self.client

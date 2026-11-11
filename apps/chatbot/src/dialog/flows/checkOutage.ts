@@ -25,7 +25,8 @@ export function describeOutage(status: OutageStatus): string {
   switch (status.status) {
     case 'OUTAGE': {
       const eta = status.estimatedRestore ? ` We expect service to be restored by ${formatDateTime(status.estimatedRestore)}.` : '';
-      return `Yes - there's a known outage affecting ${status.region} (${status.postcode}).${status.summary ? ` ${status.summary}.` : ''}${eta} Our engineers are working on it.`;
+      const summary = status.summary ? ` ${status.summary}.` : '';
+      return `Yes - there's a known outage affecting ${status.region} (${status.postcode}).${summary}${eta} Our engineers are working on it.`;
     }
     case 'PLANNED_WORK': {
       const until = status.estimatedRestore ? ` until around ${formatDateTime(status.estimatedRestore)}` : '';

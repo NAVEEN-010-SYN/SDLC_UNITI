@@ -10,23 +10,23 @@ very different control planes:
 
 ```
 apps/sdwan-portal
-├── api/   Node.js + Express (TypeScript) – adapters, services, jobs, REST API
-└── web/   React + Vite (TypeScript) – customer dashboard
+|-- api/   Node.js + Express (TypeScript) - adapters, services, jobs, REST API
+`-- web/   React + Vite (TypeScript) - customer dashboard
 ```
 
 ## Capabilities
 
-* **Inventory** – sites, edges and WAN links per Account, normalised across vendors.
-* **Health** – latency / jitter / loss per link, polled on a schedule, aggregated into
+* **Inventory** - sites, edges and WAN links per Account, normalised across vendors.
+* **Health** - latency / jitter / loss per link, polled on a schedule, aggregated into
   percentiles and scored (MOS-style link score, SLA compliance %).
-* **Business policies / QoS** – one neutral policy model translated to VeloCloud QoS
+* **Business policies / QoS** - one neutral policy model translated to VeloCloud QoS
   rules and FortiGate SD-WAN service rules (and back).
-* **Firewall rules** – neutral rule list, shadowing/overlap lint, vendor translation.
-* **Change requests** – risk-scored, approval workflow (no self-approval, role quorum
+* **Firewall rules** - neutral rule list, shadowing/overlap lint, vendor translation.
+* **Change requests** - risk-scored, approval workflow (no self-approval, role quorum
   by risk), scheduling into maintenance windows, automatic pre-change backup.
-* **Config backup / rollback** – checksummed snapshots, structural diff, restore via CR.
-* **Alerts & events** – threshold alerts raised from metrics, vendor events merged.
-* **Reports** – SLA/availability per site for a period, CSV export.
+* **Config backup / rollback** - checksummed snapshots, structural diff, restore via CR.
+* **Alerts & events** - threshold alerts raised from metrics, vendor events merged.
+* **Reports** - SLA/availability per site for a period, CSV export.
 
 ## Architecture (api)
 
@@ -51,7 +51,7 @@ cd api && npm install && cp .env.example .env && npm run dev     # :8080
 cd web && npm install && npm run dev                              # :5173, proxies /api
 ```
 
-Set `SDWAN_PROVIDER_MODE=mock` in `api/.env` to run without vendor credentials –
+Set `SDWAN_PROVIDER_MODE=mock` in `api/.env` to run without vendor credentials -
 the adapters are then backed by deterministic in-memory fixtures and demo account
 `ACC-10000001` (one VeloCloud and one Fortinet tenant). In live mode map accounts to
 controller tenants with `SDWAN_TENANTS=ACC-########:VELOCLOUD|FORTINET:<tenant>,...`.

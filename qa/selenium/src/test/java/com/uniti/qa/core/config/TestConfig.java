@@ -32,8 +32,11 @@ public final class TestConfig {
     }
 
     private static TestConfig load() {
-        String env = System.getProperty("env", Optional.ofNullable(System.getenv("TEST_ENV")).orElse("dev"))
-                .toLowerCase(Locale.ROOT);
+        String fallback = System.getenv("TEST_ENV");
+        if (fallback == null) {
+            fallback = "dev";
+        }
+        String env = System.getProperty("env", fallback).toLowerCase(Locale.ROOT);
         Properties props = new Properties();
         readInto(props, "config/default.properties", true);
         readInto(props, "config/" + env + ".properties", true);
@@ -71,7 +74,11 @@ public final class TestConfig {
         if (envValue != null && !envValue.isBlank()) {
             return Optional.of(envValue);
         }
-        return Optional.ofNullable(properties.getProperty(key)).filter(v -> !v.isBlank());
+        String fileValue = properties.getProperty(key);
+        if (fileValue != null && !fileValue.isBlank()) {
+            return Optional.of(fileValue);
+        }
+        return Optional.empty();
     }
 
     public String require(String key) {

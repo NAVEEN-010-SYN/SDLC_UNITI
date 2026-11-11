@@ -33,7 +33,7 @@ public struct TokenSet: Codable, Equatable, Sendable {
     }
 }
 
-/// Raw token endpoint response (RFC 6749 §5.1).
+/// Raw token endpoint response (RFC 6749 Section 5.1).
 struct TokenResponse: Decodable {
     let access_token: String
     let token_type: String

@@ -72,7 +72,7 @@ public final class PlanViewModel: ObservableObject {
                 deltaText = L10n.string("plan.deltaSame")
             }
             let multiplier = current.downloadMbps > 0 ? Double(plan.downloadMbps) / Double(current.downloadMbps) : 0
-            let multiplierText = multiplier >= 1.5 ? String(format: "%.0f×", multiplier.rounded()) : nil
+            let multiplierText = multiplier >= 1.5 ? String(format: "%.0f\u{00D7}", multiplier.rounded()) : nil
             return UpgradeOption(plan: plan,
                                  priceText: formatter.compactString(from: plan.monthlyPrice) + L10n.Common.perMonth,
                                  deltaText: deltaText,

@@ -1,5 +1,13 @@
 import { LocalisedFields, RichTextNode, SyncEntry } from '../contentful/types';
-import { Audience, ContentDocument, documentId, Money } from './document';
+import {
+  Audience,
+  BaseDocument,
+  ContentDocument,
+  documentId,
+  HelpArticleDocument,
+  PlanCopyDocument,
+  PromoBannerDocument,
+} from './document';
 
 export const CONTENT_TYPES = {
   helpArticle: 'helpArticle',
@@ -38,20 +46,30 @@ class FieldReader {
     return typeof value === 'number' ? value : Number.NaN;
   }
 
+  /** Trimmed, non-empty, de-duplicated strings (first occurrence wins). */
   strings(name: string): string[] {
     const value = this.raw(name);
     if (!Array.isArray(value)) return [];
-    return [...new Set(value.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean))];
+
+    const result: string[] = [];
+    for (const item of value) {
+      if (typeof item !== 'string') continue;
+      const trimmed = item.trim();
+      if (trimmed !== '' && !result.includes(trimmed)) result.push(trimmed);
+    }
+    return result;
   }
 }
 
 /** Locales that have at least one field value on this entry. */
 export function entryLocales(entry: SyncEntry): string[] {
-  const locales = new Set<string>();
+  const locales: string[] = [];
   for (const values of Object.values(entry.fields)) {
-    Object.keys(values ?? {}).forEach((l) => locales.add(l));
+    for (const locale of Object.keys(values ?? {})) {
+      if (!locales.includes(locale)) locales.push(locale);
+    }
   }
-  return [...locales].sort();
+  return locales.sort();
 }
 
 /**
@@ -61,11 +79,13 @@ export function entryLocales(entry: SyncEntry): string[] {
  */
 export function normaliseEntry(entry: SyncEntry, defaultLocale: string): ContentDocument[] {
   const contentType = entry.sys.contentType.sys.id;
-  if (!Object.values<string>(CONTENT_TYPES).includes(contentType)) return [];
+  const known: string[] = Object.values(CONTENT_TYPES);
+  if (!known.includes(contentType)) return [];
 
-  return entryLocales(entry).map((locale) => {
-    const f = new FieldReader(entry.fields, locale, defaultLocale);
-    const base = {
+  const documents: ContentDocument[] = [];
+  for (const locale of entryLocales(entry)) {
+    const reader = new FieldReader(entry.fields, locale, defaultLocale);
+    const base: BaseDocument = {
       id: documentId(entry.sys.id, locale),
       entryId: entry.sys.id,
       locale,
@@ -73,63 +93,98 @@ export function normaliseEntry(entry: SyncEntry, defaultLocale: string): Content
       updatedAt: entry.sys.updatedAt,
     };
 
-    switch (contentType) {
-      case CONTENT_TYPES.helpArticle:
-        return {
-          ...base,
-          kind: 'helpArticle' as const,
-          slug: f.string('slug').toLowerCase(),
-          title: f.string('title'),
-          summary: f.string('summary'),
-          body: richTextToPlain(f.raw('body')),
-          topics: f.strings('topics').map((t) => t.toLowerCase()),
-          products: f.strings('products').map((p) => p.toLowerCase()),
-          audience: audience(f.string('audience')),
-        };
-      case CONTENT_TYPES.planCopy: {
-        const currency = (f.string('currency') || 'USD').toUpperCase();
-        const promoMonths = f.number('promoMonths');
-        const promoAmount = parsePrice(f.raw('promoPrice'));
-        return {
-          ...base,
-          kind: 'planCopy' as const,
-          planCode: f.string('planCode').toUpperCase(),
-          headline: f.string('headline'),
-          tagline: f.string('tagline'),
-          features: f.strings('features'),
-          downMbps: f.number('downMbps'),
-          upMbps: f.number('upMbps'),
-          monthlyPrice: { amountMinor: parsePrice(f.raw('monthlyPrice')) ?? Number.NaN, currency },
-          promoPrice:
-            promoAmount !== null && Number.isInteger(promoMonths) ? { amountMinor: promoAmount, currency, months: promoMonths } : null,
-        };
-      }
-      default:
-        return {
-          ...base,
-          kind: 'promoBanner' as const,
-          message: f.string('message'),
-          ctaLabel: f.optionalString('ctaLabel'),
-          ctaUrl: f.optionalString('ctaUrl'),
-          startsAt: toUtcIso(f.string('startsAt')) ?? '',
-          endsAt: toUtcIso(f.string('endsAt')),
-          audience: audience(f.string('audience')),
-          priority: Number.isInteger(f.number('priority')) ? f.number('priority') : 0,
-        };
-    }
-  });
+    if (contentType === CONTENT_TYPES.helpArticle) documents.push(helpArticle(base, reader));
+    else if (contentType === CONTENT_TYPES.planCopy) documents.push(planCopy(base, reader));
+    else documents.push(promoBanner(base, reader));
+  }
+  return documents;
+}
+
+function helpArticle(base: BaseDocument, f: FieldReader): HelpArticleDocument {
+  return {
+    ...base,
+    kind: 'helpArticle',
+    slug: f.string('slug').toLowerCase(),
+    title: f.string('title'),
+    summary: f.string('summary'),
+    body: richTextToPlain(f.raw('body')),
+    topics: f.strings('topics').map((t) => t.toLowerCase()),
+    products: f.strings('products').map((p) => p.toLowerCase()),
+    audience: audience(f.string('audience')),
+  };
+}
+
+function planCopy(base: BaseDocument, f: FieldReader): PlanCopyDocument {
+  const currency = (f.string('currency') || 'USD').toUpperCase();
+  const promoMonths = f.number('promoMonths');
+  const promoAmount = parsePrice(f.raw('promoPrice'));
+  const monthlyAmount = parsePrice(f.raw('monthlyPrice'));
+
+  let promoPrice: PlanCopyDocument['promoPrice'] = null;
+  if (promoAmount !== null && Number.isInteger(promoMonths)) {
+    promoPrice = { amountMinor: promoAmount, currency, months: promoMonths };
+  }
+
+  return {
+    ...base,
+    kind: 'planCopy',
+    planCode: f.string('planCode').toUpperCase(),
+    headline: f.string('headline'),
+    tagline: f.string('tagline'),
+    features: f.strings('features'),
+    downMbps: f.number('downMbps'),
+    upMbps: f.number('upMbps'),
+    monthlyPrice: { amountMinor: monthlyAmount ?? Number.NaN, currency },
+    promoPrice,
+  };
+}
+
+function promoBanner(base: BaseDocument, f: FieldReader): PromoBannerDocument {
+  const priority = f.number('priority');
+  return {
+    ...base,
+    kind: 'promoBanner',
+    message: f.string('message'),
+    ctaLabel: f.optionalString('ctaLabel'),
+    ctaUrl: f.optionalString('ctaUrl'),
+    startsAt: toUtcIso(f.string('startsAt')) ?? '',
+    endsAt: toUtcIso(f.string('endsAt')),
+    audience: audience(f.string('audience')),
+    priority: Number.isInteger(priority) ? priority : 0,
+  };
 }
 
 /**
  * Editors enter prices as decimal text ("49.99") or numbers. Convert to
  * integer minor units without floating-point arithmetic.
  */
-export function parsePrice(value: unknown): Money['amountMinor'] | null {
-  const text = typeof value === 'number' ? value.toFixed(2) : typeof value === 'string' ? value.trim() : '';
+export function parsePrice(value: unknown): number | null {
+  let text = '';
+  if (typeof value === 'number') text = value.toFixed(2);
+  else if (typeof value === 'string') text = value.trim();
+
+  // Up to 7 whole digits, optional 1-2 decimal digits.
   const match = /^(\d{1,7})(?:\.(\d{1,2}))?$/.exec(text);
   if (!match) return null;
-  const [, whole = '0', fraction = ''] = match;
+  const whole = match[1] ?? '0';
+  const fraction = match[2] ?? '';
   return Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
+}
+
+/** Collect text: block nodes start a new line, inline text joins the current one. */
+function collectText(node: RichTextNode, inline: string[], blocks: string[]): void {
+  if (node.nodeType === 'text') {
+    inline.push(node.value ?? '');
+    return;
+  }
+
+  const isBlock = node.nodeType === 'paragraph' || node.nodeType.startsWith('heading-') || node.nodeType === 'list-item';
+  const target: string[] = isBlock ? [] : inline;
+  for (const child of node.content ?? []) collectText(child, target, blocks);
+
+  if (!isBlock) return;
+  const text = target.join('').replace(/\s+/g, ' ').trim();
+  if (text) blocks.push(text);
 }
 
 /** Flatten a rich-text document to searchable plain text, one block per line. */
@@ -138,20 +193,7 @@ export function richTextToPlain(node: unknown): string {
   if (!node || typeof node !== 'object') return '';
 
   const blocks: string[] = [];
-  const walk = (n: RichTextNode, inline: string[]): void => {
-    if (n.nodeType === 'text') {
-      inline.push(n.value ?? '');
-      return;
-    }
-    const isBlock = n.nodeType === 'paragraph' || n.nodeType.startsWith('heading-') || n.nodeType === 'list-item';
-    const target = isBlock ? [] : inline;
-    (n.content ?? []).forEach((child) => walk(child, target));
-    if (isBlock) {
-      const text = target.join('').replace(/\s+/g, ' ').trim();
-      if (text) blocks.push(text);
-    }
-  };
-  walk(node as RichTextNode, []);
+  collectText(node as RichTextNode, [], blocks);
   return blocks.join('\n');
 }
 

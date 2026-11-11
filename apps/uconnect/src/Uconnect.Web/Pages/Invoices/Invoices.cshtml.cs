@@ -109,7 +109,7 @@ public sealed class PayModel : AccountPageModel
             return Page();
         }
 
-        TempData["Notice"] = $"Thank you — your payment for {InvoiceNumber} has been received.";
+        TempData["Notice"] = $"Thank you \u2014 your payment for {InvoiceNumber} has been received.";
         return RedirectToPage("Details", new { invoiceNumber = InvoiceNumber });
     }
 

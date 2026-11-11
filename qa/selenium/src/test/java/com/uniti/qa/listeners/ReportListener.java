@@ -10,10 +10,10 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testng.ISuite;
@@ -66,8 +66,11 @@ public final class ReportListener implements ITestListener, ISuiteListener {
 
     private void record(ITestResult result, String status) {
         long duration = result.getEndMillis() - result.getStartMillis();
-        String failure = result.getThrowable() == null ? null : result.getThrowable().getClass().getSimpleName()
-                + ": " + result.getThrowable().getMessage();
+        String failure = null;
+        Throwable error = result.getThrowable();
+        if (error != null) {
+            failure = error.getClass().getSimpleName() + ": " + error.getMessage();
+        }
         int attempt = result.getMethod().getCurrentInvocationCount();
         Outcome outcome = new Outcome(result.getTestClass().getRealClass().getSimpleName(),
                 result.getMethod().getMethodName(), status, duration,
@@ -80,14 +83,13 @@ public final class ReportListener implements ITestListener, ISuiteListener {
     @Override
     public void onFinish(ISuite suite) {
         Instant finished = Instant.now();
-        Map<String, Long> totals = outcomes.stream()
-                .collect(Collectors.groupingBy(Outcome::status, Collectors.counting()));
+        Map<String, Long> totals = countByStatus();
         Summary summary = new Summary(TestConfig.get().environment(), TestConfig.get().browser(),
                 startedAt, finished, totals, List.copyOf(outcomes));
-        ObjectMapper mapper = new ObjectMapper()
-                .registerModule(new JavaTimeModule())
-                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
-                .enable(SerializationFeature.INDENT_OUTPUT);
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.registerModule(new JavaTimeModule());
+        mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        mapper.enable(SerializationFeature.INDENT_OUTPUT);
         try {
             Files.createDirectories(SUMMARY.getParent());
             mapper.writeValue(SUMMARY.toFile(), summary);
@@ -96,5 +98,14 @@ public final class ReportListener implements ITestListener, ISuiteListener {
         }
         LOG.info("Suite '{}' finished in {}s: {}", suite.getName(),
                 Duration.between(startedAt, finished).toSeconds(), totals);
+    }
+
+    private Map<String, Long> countByStatus() {
+        Map<String, Long> totals = new HashMap<>();
+        for (Outcome outcome : outcomes) {
+            Long current = totals.get(outcome.status());
+            totals.put(outcome.status(), current == null ? 1L : current + 1L);
+        }
+        return totals;
     }
 }

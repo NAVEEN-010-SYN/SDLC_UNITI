@@ -48,9 +48,7 @@ public class CommissionCalculator {
                             PortalProperties.Commissions config) {
         String ccy = order.currency();
         int months = Math.min(order.termMonths(), FIRST_YEAR_MONTHS);
-        Money fyv = order.sites().stream()
-                .map(s -> Money.of(s.netMrcMinor(), ccy).times(months))
-                .reduce(Money.zero(ccy), Money::plus);
+        Money fyv = firstYearValue(order.sites(), ccy, months);
 
         List<Line> lines = new ArrayList<>();
         add(lines, "BASE", tier + " tier rate " + bpsAsPercent(tier.commissionRateBps()),
@@ -66,18 +64,32 @@ public class CommissionCalculator {
             if (!rule.getCurrency().equals(ccy) || !rule.eligible(tier, order.termMonths())) {
                 continue;
             }
-            List<SiteBasis> covered = order.sites().stream().filter(s -> rule.covers(s.category())).toList();
+            List<SiteBasis> covered = new ArrayList<>();
+            for (SiteBasis s : order.sites()) {
+                if (rule.covers(s.category())) {
+                    covered.add(s);
+                }
+            }
             if (covered.isEmpty()) {
                 continue;
             }
-            Money coveredFyv = covered.stream()
-                    .map(s -> Money.of(s.netMrcMinor(), ccy).times(months))
-                    .reduce(Money.zero(ccy), Money::plus);
+            Money coveredFyv = firstYearValue(covered, ccy, months);
             Money amount = coveredFyv.basisPoints(rule.getRateBps()).plus(Money.of(rule.getFlatBonusMinor(), ccy));
             add(lines, "RULE", rule.getName(), amount);
         }
-        Money total = lines.stream().map(Line::amount).reduce(Money.zero(ccy), Money::plus);
+        Money total = Money.zero(ccy);
+        for (Line line : lines) {
+            total = total.plus(line.amount());
+        }
         return new Result(fyv, List.copyOf(lines), total);
+    }
+
+    private static Money firstYearValue(List<SiteBasis> sites, String ccy, int months) {
+        Money sum = Money.zero(ccy);
+        for (SiteBasis s : sites) {
+            sum = sum.plus(Money.of(s.netMrcMinor(), ccy).times(months));
+        }
+        return sum;
     }
 
     private static void add(List<Line> lines, String component, String description, Money amount) {

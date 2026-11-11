@@ -44,7 +44,7 @@ function breachSeverity(value: number, limit: number): AlertSeverity {
 /**
  * Pure rule evaluation for one edge. Quality rules look at p95 rather than the mean so
  * short but repeated spikes (the ones users notice on calls) are caught, and are skipped
- * for links that are down — the LINK_DOWN alert already covers them.
+ * for links that are down - the LINK_DOWN alert already covers them.
  */
 export function evaluateEdgeConditions(edge: Edge, samples: LinkSample[], sla: SlaThresholds = DEFAULT_SLA.REALTIME): AlertCondition[] {
   if (edge.status === 'DOWN') {

@@ -22,7 +22,7 @@ public enum OrderStatus
 }
 
 /// <summary>
-/// The wholesale order lifecycle: DRAFT → SUBMITTED → VALIDATED → PROVISIONING → ACTIVE,
+/// The wholesale order lifecycle: DRAFT -> SUBMITTED -> VALIDATED -> PROVISIONING -> ACTIVE,
 /// with CANCELLED and FAILED as terminal side exits. The table is the single source of truth
 /// for which moves are legal; aggregates call <see cref="EnsureCanTransition"/> before mutating.
 /// </summary>

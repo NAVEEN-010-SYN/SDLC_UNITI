@@ -135,13 +135,23 @@ public sealed class UconnectApiClient
             }
         }
 
-        var message = problem?.Detail ?? problem?.Title ?? response.StatusCode switch
-        {
-            HttpStatusCode.Unauthorized => "Your session has expired. Please sign in again.",
-            HttpStatusCode.ServiceUnavailable => "This service is temporarily unavailable. Please try again shortly.",
-            _ => "Something went wrong. Please try again.",
-        };
+        var message = problem?.Detail ?? problem?.Title ?? DefaultMessage(response.StatusCode);
         throw new ApiProblemException(response.StatusCode, problem?.Code, message, problem?.Errors ?? new Dictionary<string, string[]>());
+    }
+
+    private static string DefaultMessage(HttpStatusCode status)
+    {
+        if (status == HttpStatusCode.Unauthorized)
+        {
+            return "Your session has expired. Please sign in again.";
+        }
+
+        if (status == HttpStatusCode.ServiceUnavailable)
+        {
+            return "This service is temporarily unavailable. Please try again shortly.";
+        }
+
+        return "Something went wrong. Please try again.";
     }
 
     private sealed record ProblemBody(string? Title, string? Detail, string? Code, Dictionary<string, string[]>? Errors);

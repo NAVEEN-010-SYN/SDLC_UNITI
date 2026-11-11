@@ -4,7 +4,7 @@ import { BusinessRuleError, ForbiddenError } from '../../lib/errors';
 import { AuditRepository } from '../audit/audit.repository';
 import { Account, AccountsRepository } from './accounts.repository';
 
-/** Upper bound for the order approval threshold (annualised impact), £250,000. */
+/** Upper bound for the order approval threshold (annualised impact), GBP 250,000. */
 export const MAX_APPROVAL_THRESHOLD_MINOR = 25_000_000;
 
 export interface Me {

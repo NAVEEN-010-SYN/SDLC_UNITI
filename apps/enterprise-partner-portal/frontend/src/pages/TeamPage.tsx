@@ -95,7 +95,7 @@ export function TeamPage() {
       {seat && (
         <p aria-label="Seat usage">
           {seat.seatsUsed} of {seat.seatLimit} seats used
-          {seat.seatsAvailable === 0 && ' — deactivate a user or progress to a higher tier to add more.'}
+          {seat.seatsAvailable === 0 && ' \u2014 deactivate a user or progress to a higher tier to add more.'}
         </p>
       )}
       <form className="panel" onSubmit={submitInvite} aria-label="Invite user">

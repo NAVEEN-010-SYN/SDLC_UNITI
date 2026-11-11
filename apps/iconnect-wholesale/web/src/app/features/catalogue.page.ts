@@ -38,9 +38,33 @@ import { MoneyPipe, ProblemComponent } from '../shared/shared';
 export class CataloguePage {
   private readonly api = inject(CatalogueApi);
   readonly problem = signal<ApiProblem | null>(null);
-  private readonly products = toSignal(this.api.products().pipe(catchError((p: ApiProblem) => (this.problem.set(p), of([])))), { initialValue: [] });
-  readonly book = toSignal<PriceBook | null>(this.api.priceBook().pipe(catchError((p: ApiProblem) => (this.problem.set(p), of(null)))), { initialValue: null });
-  private readonly names = computed(() => new Map(this.products().map((p) => [p.code, p.name])));
+  private readonly products = toSignal(
+    this.api.products().pipe(
+      catchError((p: ApiProblem) => {
+        this.problem.set(p);
+        return of([]);
+      }),
+    ),
+    { initialValue: [] },
+  );
+
+  readonly book = toSignal<PriceBook | null>(
+    this.api.priceBook().pipe(
+      catchError((p: ApiProblem) => {
+        this.problem.set(p);
+        return of(null);
+      }),
+    ),
+    { initialValue: null },
+  );
+
+  private readonly names = computed(() => {
+    const map = new Map<string, string>();
+    for (const p of this.products()) {
+      map.set(p.code, p.name);
+    }
+    return map;
+  });
 
   productName(code: string): string {
     return this.names().get(code) ?? code;

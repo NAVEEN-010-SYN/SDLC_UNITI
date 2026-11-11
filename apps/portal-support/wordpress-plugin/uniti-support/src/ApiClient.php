@@ -28,7 +28,11 @@ final class ApiClient
             return null;
         }
 
-        $url = add_query_arg(array_map('rawurlencode', array_map('strval', $query)), rtrim($base, '/') . '/' . ltrim($path, '/'));
+        $encoded = [];
+        foreach ($query as $key => $value) {
+            $encoded[$key] = rawurlencode((string) $value);
+        }
+        $url = add_query_arg($encoded, rtrim($base, '/') . '/' . ltrim($path, '/'));
         $correlationId = wp_generate_uuid4();
         $headers = ['Accept' => 'application/json', 'X-Correlation-Id' => $correlationId];
         $apiKey = $this->options->get('api_key');

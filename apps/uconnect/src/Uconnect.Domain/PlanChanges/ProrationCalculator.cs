@@ -22,7 +22,7 @@ public sealed record ProrationResult(
 }
 
 /// <summary>
-/// Daily-rate proration: <c>amount × daysRemaining / daysInPeriod</c>, computed in integer minor
+/// Daily-rate proration: <c>amount x daysRemaining / daysInPeriod</c>, computed in integer minor
 /// units and rounded half away from zero. Credit and charge are rounded independently so that each
 /// invoice line stands on its own and can be explained to the customer.
 /// </summary>

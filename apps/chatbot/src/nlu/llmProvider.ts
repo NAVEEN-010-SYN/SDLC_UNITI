@@ -54,7 +54,7 @@ const SYSTEM_INSTRUCTION =
 
 /**
  * Generic HTTP chat-completion style provider. The request/response shape is the
- * common `{messages:[...]}` → `{choices:[{message:{content}}]}` contract; the model
+ * common `{messages:[...]}` -> `{choices:[{message:{content}}]}` contract; the model
  * output is parsed defensively and rejected if it names an intent outside the
  * candidate list.
  */
