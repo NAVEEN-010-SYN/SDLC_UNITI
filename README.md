@@ -25,6 +25,14 @@ under `qa/`, `data/`, `observability/` and `design/`.
 | `observability/` | Dynatrace, Kibana dashboards, alerting | JSON / YAML | — |
 | `design/` | Figma design tokens & export scripts | JSON / Node.js | — |
 
+## Scope of this edition
+
+This edition contains the application source only, so it can be ingested into a knowledge
+platform. Per-app unit tests and build/project configuration (`package.json`, `tsconfig`,
+`*.csproj`/`*.sln`, `pom.xml`, `composer.json`, `Dockerfile`, `appsettings*.json`, `.env.example`,
+Razor `.cshtml` views) are not included. The `qa/` folder (Playwright, Selenium, Postman,
+Swagger) is kept in full because it is the QA stack itself.
+
 ## Shared conventions
 
 See [CONVENTIONS.md](CONVENTIONS.md).
