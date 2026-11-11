@@ -1,0 +1,394 @@
+/**
+ * Wire types for the Go Kinetic Business API (/api/v1). Money is integer minor units plus an
+ * ISO-4217 currency; timestamps are ISO-8601 UTC strings.
+ */
+export interface Page<T> {
+  items: T[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export interface PageRequest {
+  page: number;
+  pageSize: number;
+}
+
+export type Role = 'BUSINESS_ADMIN' | 'BUSINESS_USER' | 'SUPPORT_AGENT';
+export type SlaTier = 'STANDARD' | 'ENHANCED' | 'PREMIUM';
+
+export type Permission =
+  | 'sites:read'
+  | 'sites:manage'
+  | 'services:read'
+  | 'users:read'
+  | 'users:manage'
+  | 'orders:read'
+  | 'orders:create'
+  | 'orders:approve'
+  | 'orders:fulfil'
+  | 'billing:read'
+  | 'billing:manage'
+  | 'sla:read'
+  | 'tickets:read'
+  | 'tickets:create'
+  | 'tickets:escalate'
+  | 'tickets:internal'
+  | 'contracts:read'
+  | 'contracts:renew'
+  | 'documents:read'
+  | 'audit:read';
+
+export interface Me {
+  userId: string;
+  email: string;
+  roles: Role[];
+  accountId: string;
+  siteScope: string[] | null;
+  permissions: Permission[];
+  account: { id: string; name: string; status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED'; slaTier: SlaTier; currency: string };
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  status: 'ACTIVE' | 'SUSPENDED' | 'CLOSED';
+  currency: string;
+  slaTier: SlaTier;
+  approvalThresholdMinor: number;
+}
+
+// Inventory
+export type SiteStatus = 'PENDING' | 'ACTIVE' | 'DECOMMISSIONED';
+export type ServiceStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED' | 'CEASED';
+export type ServiceCategory = 'BROADBAND' | 'VOICE' | 'SDWAN' | 'HOSTED';
+
+export interface Site {
+  id: string;
+  accountId: string;
+  code: string;
+  name: string;
+  addressLine1: string;
+  addressLine2: string | null;
+  city: string;
+  postcode: string;
+  country: string;
+  status: SiteStatus;
+  costCentreId: string | null;
+  createdAt: string;
+}
+
+export interface SiteSummary extends Site {
+  activeServiceCount: number;
+  monthlyRecurringMinor: number;
+  totalBandwidthMbps: number;
+}
+
+export interface Service {
+  id: string;
+  accountId: string;
+  siteId: string;
+  contractId: string | null;
+  costCentreId: string | null;
+  productCode: string;
+  productName: string;
+  category: ServiceCategory;
+  bandwidthMbps: number | null;
+  status: ServiceStatus;
+  slaTier: SlaTier;
+  monthlyChargeMinor: number;
+  currency: string;
+  activatedAt: string | null;
+  ceasedAt: string | null;
+}
+
+export interface SiteDetail extends Site {
+  services: Service[];
+  monthlyRecurringMinor: number;
+}
+
+export interface InventorySummary {
+  siteCount: number;
+  activeSiteCount: number;
+  serviceCount: number;
+  byCategory: Record<ServiceCategory, { count: number; monthlyRecurringMinor: number }>;
+  byStatus: Record<ServiceStatus, number>;
+  monthlyRecurringMinor: number;
+  totalBandwidthMbps: number;
+  currency: string;
+}
+
+// Orders
+export type OrderType = 'PROVIDE' | 'MOVE' | 'ADD' | 'CHANGE' | 'CEASE';
+export type OrderStatus = 'DRAFT' | 'SUBMITTED' | 'VALIDATED' | 'PROVISIONING' | 'ACTIVE' | 'CANCELLED' | 'FAILED';
+
+export interface Order {
+  id: string;
+  accountId: string;
+  batchId: string | null;
+  reference: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  siteId: string;
+  targetSiteId: string | null;
+  serviceId: string | null;
+  productCode: string | null;
+  bandwidthMbps: number | null;
+  monthlyDeltaMinor: number;
+  oneOffChargeMinor: number;
+  currency: string;
+  requiresApproval: boolean;
+  approvedBy: string | null;
+  requestedDate: string | null;
+  notes: string | null;
+  failureReason: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrderStatusChange {
+  fromStatus: OrderStatus | null;
+  toStatus: OrderStatus;
+  changedBy: string | null;
+  reason: string | null;
+  changedAt: string;
+}
+
+export interface OrderDetail extends Order {
+  history: OrderStatusChange[];
+}
+
+export interface OrderRequest {
+  orderType: OrderType;
+  siteId: string;
+  targetSiteId?: string | null;
+  serviceId?: string | null;
+  productCode?: string | null;
+  requestedDate?: string | null;
+  notes?: string | null;
+}
+
+export interface OrderQuote {
+  productCode: string | null;
+  bandwidthMbps: number | null;
+  monthlyDeltaMinor: number;
+  oneOffChargeMinor: number;
+  requiresApproval: boolean;
+}
+
+export interface CatalogueProduct {
+  code: string;
+  name: string;
+  category: ServiceCategory;
+  bandwidthMbps: number | null;
+  monthlyPriceMinor: number;
+  installChargeMinor: number;
+  requiresConnectivity: boolean;
+}
+
+// Billing
+export type InvoiceStatus = 'ISSUED' | 'PAID' | 'OVERDUE' | 'DISPUTED' | 'VOID';
+
+export interface Invoice {
+  id: string;
+  accountId: string;
+  number: string;
+  period: string;
+  issueDate: string;
+  dueDate: string;
+  status: InvoiceStatus;
+  subtotalMinor: number;
+  taxMinor: number;
+  totalMinor: number;
+  currency: string;
+}
+
+export interface InvoiceLine {
+  id: string;
+  invoiceId: string;
+  serviceId: string | null;
+  siteId: string | null;
+  description: string;
+  category: string;
+  amountMinor: number;
+  costCentreId: string | null;
+}
+
+export interface InvoiceDetail extends Invoice {
+  lines: InvoiceLine[];
+  daysOverdue: number;
+}
+
+export interface SpendTrendPoint {
+  period: string;
+  totalMinor: number;
+  changeMinor: number | null;
+  changeBps: number | null;
+}
+
+export type CardBrand = 'VISA' | 'MASTERCARD' | 'AMEX';
+
+export interface PaymentMethod {
+  id: string;
+  kind: 'CARD' | 'DIRECT_DEBIT';
+  holderName: string;
+  cardBrand: CardBrand | null;
+  last4: string;
+  expiryMonth: number | null;
+  expiryYear: number | null;
+  sortCodeMasked: string | null;
+  isDefault: boolean;
+  createdAt: string;
+  expired: boolean;
+  expiresSoon: boolean;
+}
+
+export type AddPaymentMethod =
+  | {
+      kind: 'CARD';
+      providerToken: string;
+      holderName: string;
+      cardBrand: CardBrand;
+      last4: string;
+      expiryMonth: number;
+      expiryYear: number;
+      makeDefault: boolean;
+    }
+  | { kind: 'DIRECT_DEBIT'; holderName: string; sortCode: string; accountNumber: string; makeDefault: boolean };
+
+// Users
+export type BusinessRole = 'BUSINESS_ADMIN' | 'BUSINESS_USER';
+export type UserStatus = 'INVITED' | 'ACTIVE' | 'SUSPENDED' | 'DEACTIVATED';
+export type UserAction = 'suspend' | 'reactivate' | 'deactivate';
+
+export interface BusinessUser {
+  id: string;
+  accountId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  role: BusinessRole;
+  status: UserStatus;
+  siteScope: string[] | null;
+  invitedBy: string | null;
+  lastLoginAt: string | null;
+  version: number;
+  createdAt: string;
+}
+
+// Tickets
+export type TicketCategory = 'FAULT' | 'SERVICE_REQUEST' | 'BILLING' | 'GENERAL';
+export type TicketPriority = 'P1' | 'P2' | 'P3' | 'P4';
+export type TicketStatus = 'OPEN' | 'IN_PROGRESS' | 'PENDING_CUSTOMER' | 'RESOLVED' | 'CLOSED';
+export type SlaMeasureState = 'ON_TRACK' | 'AT_RISK' | 'BREACHED' | 'MET' | 'PAUSED';
+
+export interface SlaMeasure {
+  dueAt: string;
+  state: SlaMeasureState;
+  consumedBps: number;
+}
+
+export interface Ticket {
+  id: string;
+  reference: string;
+  category: TicketCategory;
+  priority: TicketPriority;
+  status: TicketStatus;
+  serviceId: string | null;
+  siteId: string | null;
+  subject: string;
+  description: string;
+  raisedBy: string;
+  contactPhone: string | null;
+  escalationLevel: number;
+  slaTier: SlaTier;
+  openedAt: string;
+  firstResponseAt: string | null;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  version: number;
+  sla: { response: SlaMeasure; resolution: SlaMeasure };
+}
+
+export interface TicketEvent {
+  id: number;
+  kind: 'COMMENT' | 'STATUS_CHANGE' | 'ESCALATION' | 'PRIORITY_CHANGE';
+  authorId: string | null;
+  body: string | null;
+  fromValue: string | null;
+  toValue: string | null;
+  internal: boolean;
+  createdAt: string;
+}
+
+export interface TicketDetail extends Ticket {
+  events: TicketEvent[];
+  allowedStatuses: TicketStatus[];
+}
+
+export interface NewTicket {
+  category: TicketCategory;
+  priority: TicketPriority;
+  serviceId?: string | null;
+  siteId?: string | null;
+  subject: string;
+  description: string;
+  contactPhone?: string | null;
+}
+
+// SLA
+export interface Money {
+  amountMinor: number;
+  currency: string;
+}
+
+export interface ServiceAvailability {
+  serviceId: string;
+  productName: string;
+  siteId: string;
+  slaTier: SlaTier;
+  measuredMinutes: number;
+  downtimeMinutes: number;
+  plannedMinutes: number;
+  outageCount: number;
+  availabilityMilliPct: number;
+  targetMilliPct: number;
+  met: boolean;
+  creditBps: number;
+  credit: Money;
+}
+
+export interface TicketCompliance {
+  priority: TicketPriority;
+  resolvedCount: number;
+  responseMetCount: number;
+  resolutionMetCount: number;
+  responseMetBps: number | null;
+  resolutionMetBps: number | null;
+}
+
+export interface SlaReport {
+  period: string;
+  provisional: boolean;
+  generatedAt: string;
+  services: ServiceAvailability[];
+  servicesMeasured: number;
+  servicesBreached: number;
+  overallAvailabilityMilliPct: number | null;
+  totalCredit: Money;
+  tickets: TicketCompliance[];
+}
+
+// Audit
+export interface AuditEntry {
+  id: number;
+  actorId: string | null;
+  action: string;
+  entity: string;
+  entityId: string;
+  details: Record<string, unknown>;
+  correlationId: string | null;
+  createdAt: string;
+  summary: string;
+}

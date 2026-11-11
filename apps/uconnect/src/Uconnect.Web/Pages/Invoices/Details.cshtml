@@ -1,0 +1,40 @@
+@page "{invoiceNumber}"
+@model Uconnect.Web.Pages.Invoices.DetailsModel
+@{
+    var inv = Model.Invoice!;
+    ViewData["Title"] = $"Bill {inv.Summary.InvoiceNumber}";
+}
+<p>
+    <partial name="_StatusBadge" model="inv.Summary.Status" />
+    Issued @Display.Date(inv.Summary.IssuedOn), due @Display.Date(inv.Summary.DueOn).
+    <a asp-page-handler="Pdf" asp-route-invoiceNumber="@inv.Summary.InvoiceNumber">Download PDF</a>
+    @if (inv.Summary.BalanceDue.AmountMinor > 0 && Model.CanManage)
+    {
+        <a class="button" asp-page="Pay" asp-route-invoiceNumber="@inv.Summary.InvoiceNumber">Pay @Display.Money(inv.Summary.BalanceDue)</a>
+    }
+</p>
+<table class="grid">
+    <thead><tr><th>Description</th><th>Service</th><th class="num">Qty</th><th class="num">Amount</th></tr></thead>
+    <tbody>
+    @foreach (var l in inv.Lines)
+    {
+        <tr>
+            <td>@l.Description@(l.Taxable ? null : " *")</td>
+            <td>@l.ServiceReference</td>
+            <td class="num">@l.Quantity</td>
+            <td class="num">@Display.Money(l.Amount)</td>
+        </tr>
+    }
+    </tbody>
+    <tfoot>
+        <tr><td colspan="3">Subtotal</td><td class="num">@Display.Money(inv.Subtotal)</td></tr>
+        <tr><td colspan="3">VAT at @(inv.TaxRateBasisPoints / 100m)%</td><td class="num">@Display.Money(inv.TaxTotal)</td></tr>
+        <tr><th colspan="3">Total</th><th class="num">@Display.Money(inv.Summary.Total)</th></tr>
+        <tr><td colspan="3">Paid</td><td class="num">@Display.Money(inv.AmountPaid)</td></tr>
+        @if (inv.CreditCarriedForward.AmountMinor > 0)
+        {
+            <tr><td colspan="3">Credit carried to your next bill</td><td class="num">@Display.Money(inv.CreditCarriedForward)</td></tr>
+        }
+    </tfoot>
+</table>
+<p class="hint">* not subject to VAT</p>

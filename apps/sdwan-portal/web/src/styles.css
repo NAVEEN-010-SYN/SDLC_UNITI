@@ -1,0 +1,78 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1b1f24;
+  --muted: #5b6573;
+  --border: #d9dee5;
+  --accent: #5a2d82;
+  --ok: #1d7a46;
+  --warn: #9a6500;
+  --bad: #b3261e;
+  --info: #1f5fa8;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body { margin: 0; }
+.shell header { display: flex; gap: 16px; align-items: center; padding: 12px 24px; background: var(--accent); color: #fff; }
+.shell header .brand { font-weight: 600; margin-right: auto; }
+.shell header button { margin-left: 8px; }
+.shell nav { display: flex; gap: 4px; padding: 0 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.shell nav a { padding: 12px; color: var(--muted); text-decoration: none; border-bottom: 2px solid transparent; }
+.shell nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+main { padding: 24px; max-width: 1200px; }
+
+table { width: 100%; border-collapse: collapse; background: var(--surface); }
+th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 14px; }
+th { color: var(--muted); font-weight: 600; }
+tr.disabled td { color: var(--muted); }
+td.empty, p.empty { color: var(--muted); text-align: center; padding: 24px; }
+caption { text-align: left; font-weight: 600; padding: 8px 0; }
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.pill-ok { background: #e3f4ea; color: var(--ok); }
+.pill-warn { background: #fdf1d8; color: var(--warn); }
+.pill-bad { background: #fbe4e2; color: var(--bad); }
+.pill-info { background: #e2ecf8; color: var(--info); }
+.pill-muted { background: #eceff3; color: var(--muted); }
+
+.tiles { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.tile { display: flex; flex-direction: column; min-width: 120px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; text-align: left; font: inherit; }
+.tile[aria-pressed='true'] { outline: 2px solid var(--accent); }
+.tile-value { font-size: 28px; font-weight: 700; }
+.tile-label { color: var(--muted); }
+.tile-up .tile-value { color: var(--ok); }
+.tile-degraded .tile-value { color: var(--warn); }
+.tile-down .tile-value { color: var(--bad); }
+
+.filters, .draft-bar, .rule-form { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin: 16px 0; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+label.inline { flex-direction: row; align-items: center; }
+.field-error { color: var(--bad); font-size: 12px; }
+.problem { border-left: 4px solid var(--bad); background: #fdf3f2; padding: 12px 16px; margin: 12px 0; }
+.problem small { display: block; color: var(--muted); margin-top: 4px; }
+.notice { border-left: 4px solid var(--warn); background: #fff8e8; padding: 8px 12px; }
+.meta { color: var(--muted); }
+.pager { display: flex; gap: 6px; align-items: center; justify-content: flex-end; padding: 8px 0; }
+.pager button[aria-current='page'] { font-weight: 700; background: var(--accent); color: #fff; }
+.segmented button[aria-pressed='true'] { background: var(--accent); color: #fff; }
+.row-actions { white-space: nowrap; }
+
+.link-panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin: 16px 0; }
+.stats { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+.stats dt { color: var(--muted); }
+.stats dd { margin: 0; }
+.chart { margin: 12px 0; }
+.chart svg { width: 100%; height: auto; }
+.chart .grid { stroke: var(--border); }
+.chart .tick { font-size: 10px; fill: var(--muted); }
+.chart .threshold { stroke: var(--bad); stroke-dasharray: 4 3; }
+.chart .series { stroke: var(--accent); stroke-width: 1.5; }
+.chart .point-hit { fill: transparent; }
+.chart .point-breach { fill: var(--bad); }
+.chart-breach { color: var(--bad); }
+.chart-ok { color: var(--ok); }
+.chart-readout { font-size: 12px; color: var(--muted); }
+.timeline li, .events li { margin: 4px 0; }
+.login { max-width: 420px; margin: 10vh auto; }

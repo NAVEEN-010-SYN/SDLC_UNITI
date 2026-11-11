@@ -1,0 +1,426 @@
+openapi: 3.0.3
+info:
+  title: Uconnect - Accounts & Billing API
+  version: 2.1.0
+  description: >
+    Account profile, service inventory, invoices and payments for consumer and
+    business accounts. Consumers only see their own account; BUSINESS_ADMIN and
+    BUSINESS_USER see accounts they are linked to; SUPPORT_AGENT sees all.
+servers:
+  - url: https://uconnect-api.uniti.com
+  - url: https://uconnect-api.staging.uniti.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Accounts
+  - name: Invoices
+  - name: Payments
+
+paths:
+  /api/v1/accounts/{accountId}:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/AccountIdPath'
+      - $ref: './common.yaml#/components/parameters/CorrelationId'
+    get:
+      tags: [Accounts]
+      operationId: getAccount
+      summary: Account profile with balance and autopay state
+      responses:
+        '200':
+          description: The account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: './common.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+    patch:
+      tags: [Accounts]
+      operationId: updateAccountProfile
+      summary: Update contact details (BUSINESS_ADMIN, CONSUMER owner)
+      requestBody:
+        required: true
+        content:
+          application/merge-patch+json:
+            schema:
+              type: object
+              minProperties: 1
+              additionalProperties: false
+              properties:
+                displayName:
+                  type: string
+                  maxLength: 120
+                contactEmail:
+                  type: string
+                  format: email
+                contactPhone:
+                  type: string
+                  maxLength: 20
+                billingAddress:
+                  $ref: './common.yaml#/components/schemas/PostalAddress'
+                paperlessBilling:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /api/v1/accounts/{accountId}/services:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/AccountIdPath'
+    get:
+      tags: [Accounts]
+      operationId: listServices
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING_ACTIVATION, ACTIVE, SUSPENDED, CANCELLED]
+      responses:
+        '200':
+          description: Page of services.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './common.yaml#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Service'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /api/v1/accounts/{accountId}/invoices:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/AccountIdPath'
+    get:
+      tags: [Invoices]
+      operationId: listInvoices
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/PageSize'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/InvoiceStatus'
+        - name: issuedFrom
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Page of invoices, newest billing period first.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './common.yaml#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Invoice'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /api/v1/invoices/{invoiceId}/pdf:
+    get:
+      tags: [Invoices]
+      operationId: downloadInvoicePdf
+      parameters:
+        - name: invoiceId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Rendered invoice.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '409':
+          description: Invoice is still DRAFT and has no PDF.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/ProblemDetails'
+
+  /api/v1/accounts/{accountId}/payments:
+    parameters:
+      - $ref: './common.yaml#/components/parameters/AccountIdPath'
+    get:
+      tags: [Payments]
+      operationId: listPayments
+      parameters:
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Page of payments.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './common.yaml#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Payment'
+    post:
+      tags: [Payments]
+      operationId: makePayment
+      summary: Pay an issued, partially paid or overdue invoice
+      parameters:
+        - $ref: './common.yaml#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoiceId, paymentMethodId, amountMinor]
+              additionalProperties: false
+              properties:
+                invoiceId:
+                  type: string
+                  format: uuid
+                paymentMethodId:
+                  type: string
+                  format: uuid
+                amountMinor:
+                  type: integer
+                  format: int64
+                  minimum: 1
+                  description: Must not exceed the invoice balance due.
+      responses:
+        '201':
+          description: Payment accepted for processing.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '409':
+          $ref: './common.yaml#/components/responses/Conflict'
+        '422':
+          $ref: './common.yaml#/components/responses/UnprocessableEntity'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    InvoiceStatus:
+      type: string
+      enum: [DRAFT, ISSUED, PARTIALLY_PAID, PAID, OVERDUE, VOID]
+
+    Account:
+      type: object
+      required: [accountId, type, status, displayName, currency, balanceMinor, autopayEnabled, createdAt]
+      properties:
+        accountId:
+          $ref: './common.yaml#/components/schemas/AccountId'
+        type:
+          type: string
+          enum: [CONSUMER, BUSINESS]
+        status:
+          type: string
+          enum: [ACTIVE, SUSPENDED, CLOSED]
+        displayName:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        contactPhone:
+          type: string
+        billingAddress:
+          $ref: './common.yaml#/components/schemas/PostalAddress'
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        balanceMinor:
+          type: integer
+          format: int64
+          description: Outstanding balance across payable invoices; negative means credit.
+        autopayEnabled:
+          type: boolean
+        paperlessBilling:
+          type: boolean
+        createdAt:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+
+    Service:
+      type: object
+      required: [serviceId, productType, planCode, status, monthlyPrice]
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+        productType:
+          type: string
+          enum: [BROADBAND, VOICE, SDWAN, HOSTED_SERVICES]
+        planCode:
+          type: string
+          example: FIBER-500
+        planName:
+          type: string
+        status:
+          type: string
+          enum: [PENDING_ACTIVATION, ACTIVE, SUSPENDED, CANCELLED]
+        downloadMbps:
+          type: integer
+        uploadMbps:
+          type: integer
+        monthlyPrice:
+          $ref: './common.yaml#/components/schemas/Money'
+        serviceAddress:
+          $ref: './common.yaml#/components/schemas/PostalAddress'
+        activatedOn:
+          type: string
+          format: date
+        contractEndsOn:
+          type: string
+          format: date
+          nullable: true
+
+    InvoiceLine:
+      type: object
+      required: [type, description, amountMinor]
+      properties:
+        type:
+          type: string
+          enum: [RECURRING, PRORATION, ONE_OFF, USAGE, CREDIT, DISCOUNT, EARLY_TERMINATION_FEE]
+        description:
+          type: string
+        serviceId:
+          type: string
+          format: uuid
+          nullable: true
+        amountMinor:
+          type: integer
+          format: int64
+          description: Negative for CREDIT and DISCOUNT lines.
+
+    Invoice:
+      type: object
+      required: [invoiceId, invoiceNumber, status, periodStart, periodEnd, currency, subtotalMinor, taxMinor, totalMinor, amountPaidMinor, balanceDueMinor]
+      properties:
+        invoiceId:
+          type: string
+          format: uuid
+        invoiceNumber:
+          type: string
+          example: INV-2026-0012345
+        status:
+          $ref: '#/components/schemas/InvoiceStatus'
+        periodStart:
+          type: string
+          format: date
+        periodEnd:
+          type: string
+          format: date
+        issuedOn:
+          type: string
+          format: date
+          nullable: true
+        dueOn:
+          type: string
+          format: date
+          nullable: true
+        currency:
+          type: string
+          pattern: '^[A-Z]{3}$'
+        subtotalMinor:
+          type: integer
+          format: int64
+        taxRateBasisPoints:
+          type: integer
+          minimum: 0
+          maximum: 10000
+        taxMinor:
+          type: integer
+          format: int64
+        totalMinor:
+          type: integer
+          format: int64
+        amountPaidMinor:
+          type: integer
+          format: int64
+        balanceDueMinor:
+          type: integer
+          format: int64
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceLine'
+
+    Payment:
+      type: object
+      required: [paymentId, invoiceId, amount, status, channel, createdAt]
+      properties:
+        paymentId:
+          type: string
+          format: uuid
+        invoiceId:
+          type: string
+          format: uuid
+        amount:
+          $ref: './common.yaml#/components/schemas/Money'
+        refundedMinor:
+          type: integer
+          format: int64
+          default: 0
+        status:
+          type: string
+          enum: [PENDING, SUCCEEDED, FAILED, REFUNDED, PARTIALLY_REFUNDED]
+        channel:
+          type: string
+          enum: [PORTAL, AUTOPAY, AGENT]
+        methodType:
+          type: string
+          enum: [CARD, DIRECT_DEBIT]
+        failureCode:
+          type: string
+          nullable: true
+        createdAt:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+        settledAt:
+          allOf:
+            - $ref: './common.yaml#/components/schemas/Timestamp'
+          nullable: true

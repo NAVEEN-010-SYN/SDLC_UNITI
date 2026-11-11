@@ -1,0 +1,89 @@
+# Service-level objectives per portal. Availability counts 5xx and timeouts as
+# failures (4xx are client errors and excluded); latency uses the P95 of
+# server-side response time on the key user action. Targets reviewed quarterly.
+configs:
+  - id: slo-ecom-checkout-availability
+    type:
+      api: slo
+    config:
+      name: eCom checkout availability
+      template: slo-availability.json
+      parameters:
+        serviceTag: app:ecom-gokinetic
+        requestName: POST /api/v1/checkout
+        target: 99.9
+        warning: 99.95
+        timeframe: -28d
+        mzName: Selfcare B2C
+
+  - id: slo-uconnect-billing-availability
+    type:
+      api: slo
+    config:
+      name: Uconnect billing availability
+      template: slo-availability.json
+      parameters:
+        serviceTag: app:uconnect
+        requestName: /api/v1/accounts/*/invoices
+        target: 99.5
+        warning: 99.8
+        timeframe: -28d
+        mzName: Selfcare B2C
+
+  - id: slo-iconnect-order-availability
+    type:
+      api: slo
+    config:
+      name: iConnect order placement availability
+      template: slo-availability.json
+      parameters:
+        serviceTag: app:iconnect-wholesale
+        requestName: POST /api/v1/wholesale/orders
+        target: 99.9
+        warning: 99.95
+        timeframe: -28d
+        mzName: Selfcare Partners
+
+  - id: slo-sdwan-edges-availability
+    type:
+      api: slo
+    config:
+      name: SD-WAN edge inventory availability
+      template: slo-availability.json
+      parameters:
+        serviceTag: app:sdwan-portal
+        requestName: /api/v1/sdwan/edges*
+        target: 99.0
+        warning: 99.5
+        timeframe: -28d
+        mzName: Selfcare B2B
+
+  - id: slo-ecom-checkout-latency
+    type:
+      api: slo
+    config:
+      name: eCom checkout P95 under 2s
+      template: slo-latency.json
+      parameters:
+        serviceTag: app:ecom-gokinetic
+        requestName: POST /api/v1/checkout
+        thresholdMicros: 2000000
+        target: 95
+        warning: 97
+        timeframe: -7d
+        mzName: Selfcare B2C
+
+  - id: slo-business-login-latency
+    type:
+      api: slo
+    config:
+      name: Business portal login P95 under 1.5s
+      template: slo-latency.json
+      parameters:
+        serviceTag: app:gokinetic-business
+        requestName: POST /api/v1/auth/login
+        thresholdMicros: 1500000
+        target: 95
+        warning: 97
+        timeframe: -7d
+        mzName: Selfcare B2B

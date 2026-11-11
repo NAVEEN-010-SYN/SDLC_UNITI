@@ -1,0 +1,36 @@
+:root {
+  --icw-primary: #4b2e83;
+  --icw-danger: #b3261e;
+  --icw-warn: #a15c00;
+  --icw-ok: #1e6b34;
+  --icw-border: #d9d6e0;
+  --icw-muted: #5d5a66;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #1c1b1f; background: #f7f6fa; }
+a { color: var(--icw-primary); }
+h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+h2 { font-size: 1.15rem; margin: 1.5rem 0 0.75rem; }
+
+.card { background: #fff; border: 1px solid var(--icw-border); border-radius: 8px; padding: 1rem 1.25rem; margin-bottom: 1rem; }
+.row { display: flex; gap: 0.75rem; flex-wrap: wrap; align-items: flex-end; }
+.muted { color: var(--icw-muted); }
+
+label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.85rem; font-weight: 600; }
+input, select, textarea { font: inherit; padding: 0.45rem 0.6rem; border: 1px solid var(--icw-border); border-radius: 4px; min-width: 10rem; }
+input.ng-invalid.ng-touched, select.ng-invalid.ng-touched { border-color: var(--icw-danger); }
+
+button { font: inherit; padding: 0.45rem 0.9rem; border-radius: 4px; border: 1px solid var(--icw-primary); background: var(--icw-primary); color: #fff; cursor: pointer; }
+button.secondary { background: #fff; color: var(--icw-primary); }
+button.danger { background: var(--icw-danger); border-color: var(--icw-danger); }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+table { width: 100%; border-collapse: collapse; background: #fff; }
+th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--icw-border); font-size: 0.9rem; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 600; background: #ece9f3; }
+.badge.Breached, .badge.FAILED, .badge.REJECTED, .badge.REVOKED, .badge.INVALID { background: #fbe4e2; color: var(--icw-danger); }
+.badge.AtRisk, .badge.EXPIRING, .badge.DISPUTED { background: #fff1d6; color: var(--icw-warn); }
+.badge.OnTrack, .badge.Met, .badge.ACTIVE, .badge.VALIDATED, .badge.VALID, .badge.SETTLED, .badge.SUBMITTED { background: #e1f3e6; color: var(--icw-ok); }

@@ -1,0 +1,35 @@
+manifestVersion: 1.0
+
+projects:
+  - name: selfcare
+    path: selfcare
+
+environmentGroups:
+  - name: nonprod
+    environments:
+      - name: staging
+        url:
+          type: environment
+          value: DT_STAGING_URL
+        auth:
+          token:
+            name: DT_STAGING_API_TOKEN
+          oAuth:
+            clientId:
+              name: DT_STAGING_OAUTH_CLIENT_ID
+            clientSecret:
+              name: DT_STAGING_OAUTH_CLIENT_SECRET
+  - name: prod
+    environments:
+      - name: production
+        url:
+          type: environment
+          value: DT_PROD_URL
+        auth:
+          token:
+            name: DT_PROD_API_TOKEN
+          oAuth:
+            clientId:
+              name: DT_PROD_OAUTH_CLIENT_ID
+            clientSecret:
+              name: DT_PROD_OAUTH_CLIENT_SECRET

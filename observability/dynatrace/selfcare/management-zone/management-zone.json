@@ -1,0 +1,30 @@
+{
+  "name": "{{ .zoneName }}",
+  "description": "{{ .description }}",
+  "rules": [
+    {{- range $i, $app := .appTags }}{{ if $i }},{{ end }}
+    {
+      "enabled": true,
+      "type": "ME",
+      "attributeRule": {
+        "entityType": "SERVICE",
+        "conditions": [
+          { "key": "SERVICE_TAGS", "operator": "EQUALS", "tag": "app:{{ $app }}" }
+        ],
+        "serviceToHostPropagation": true,
+        "serviceToPGPropagation": true
+      }
+    },
+    {
+      "enabled": true,
+      "type": "ME",
+      "attributeRule": {
+        "entityType": "WEB_APPLICATION",
+        "conditions": [
+          { "key": "WEB_APPLICATION_TAGS", "operator": "EQUALS", "tag": "app:{{ $app }}" }
+        ]
+      }
+    }
+    {{- end }}
+  ]
+}

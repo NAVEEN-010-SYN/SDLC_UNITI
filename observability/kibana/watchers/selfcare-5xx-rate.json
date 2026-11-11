@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "description": "Pages when any self-care service returns more than 2% 5xx over 5 minutes with at least 50 requests.",
+    "threshold_pct": 2,
+    "min_requests": 50,
+    "runbook": "observability/runbooks/selfcare-incident-runbook.md#elevated-5xx-rate"
+  },
+  "trigger": {
+    "schedule": { "interval": "1m" }
+  },
+  "input": {
+    "search": {
+      "request": {
+        "indices": ["selfcare-logs-*"],
+        "body": {
+          "size": 0,
+          "query": {
+            "bool": {
+              "filter": [
+                { "range": { "ts": { "gte": "now-5m" } } },
+                { "exists": { "field": "status" } }
+              ]
+            }
+          },
+          "aggs": {
+            "by_service": {
+              "terms": { "field": "service.keyword", "size": 25 },
+              "aggs": {
+                "server_errors": { "filter": { "range": { "status": { "gte": 500 } } } },
+                "sample_correlation_ids": {
+                  "filter": { "range": { "status": { "gte": 500 } } },
+                  "aggs": {
+                    "ids": { "terms": { "field": "correlationId.keyword", "size": 5 } },
+                    "paths": { "terms": { "field": "path.keyword", "size": 3 } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "condition": {
+    "script": {
+      "lang": "painless",
+      "source": "for (b in ctx.payload.aggregations.by_service.buckets) { if (b.doc_count >= ctx.metadata.min_requests && b.server_errors.doc_count * 100.0 / b.doc_count > ctx.metadata.threshold_pct) { return true; } } return false;"
+    }
+  },
+  "transform": {
+    "script": {
+      "lang": "painless",
+      "source": "def breaching = []; for (b in ctx.payload.aggregations.by_service.buckets) { if (b.doc_count >= ctx.metadata.min_requests) { double pct = b.server_errors.doc_count * 100.0 / b.doc_count; if (pct > ctx.metadata.threshold_pct) { breaching.add(['service': b.key, 'requests': b.doc_count, 'errors': b.server_errors.doc_count, 'pct': Math.round(pct * 10) / 10.0, 'correlationIds': b.sample_correlation_ids.ids.buckets.collect(x -> x.key), 'paths': b.sample_correlation_ids.paths.buckets.collect(x -> x.key)]); } } } return ['breaching': breaching];"
+    }
+  },
+  "throttle_period": "15m",
+  "actions": {
+    "pagerduty": {
+      "pagerduty": {
+        "account": "selfcare-oncall",
+        "event": {
+          "description": "Selfcare 5xx rate above {{ctx.metadata.threshold_pct}}%: {{#ctx.payload.breaching}}{{service}} {{pct}}% ({{errors}}/{{requests}}) {{/ctx.payload.breaching}}",
+          "event_type": "trigger",
+          "incident_key": "selfcare-5xx-{{ctx.watch_id}}",
+          "client": "Kibana Watcher",
+          "context": [
+            { "type": "link", "href": "https://kibana.uniti.com/app/dashboards#/view/selfcare-operations", "text": "Operations dashboard" }
+          ]
+        }
+      }
+    },
+    "slack": {
+      "slack": {
+        "account": "uniti-ops",
+        "message": {
+          "to": ["#selfcare-alerts"],
+          "text": "5xx rate breach (last 5m)",
+          "attachments": [
+            {
+              "color": "danger",
+              "title": "{{#ctx.payload.breaching}}{{service}}: {{pct}}% {{/ctx.payload.breaching}}",
+              "text": "{{#ctx.payload.breaching}}*{{service}}* paths: {{paths}} | sample correlationIds: {{correlationIds}}\n{{/ctx.payload.breaching}}Runbook: {{ctx.metadata.runbook}}"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

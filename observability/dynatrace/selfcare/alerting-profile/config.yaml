@@ -1,0 +1,57 @@
+# Alerting profiles decide which problems page whom. Availability and error
+# problems page immediately; slowdowns wait so transient spikes self-heal;
+# resource and custom-info problems only reach the team channel.
+configs:
+  - id: ap-b2c
+    type:
+      settings:
+        schema: builtin:alerting.profile
+        scope: environment
+    config:
+      name: Selfcare B2C on-call
+      template: alerting-profile.json
+      parameters:
+        profileName: Selfcare B2C on-call
+        managementZone:
+          type: reference
+          project: selfcare
+          configType: builtin:management-zones
+          configId: mz-b2c
+          property: id
+        slowdownDelayMinutes: 10
+
+  - id: ap-b2b
+    type:
+      settings:
+        schema: builtin:alerting.profile
+        scope: environment
+    config:
+      name: Selfcare B2B on-call
+      template: alerting-profile.json
+      parameters:
+        profileName: Selfcare B2B on-call
+        managementZone:
+          type: reference
+          project: selfcare
+          configType: builtin:management-zones
+          configId: mz-b2b
+          property: id
+        slowdownDelayMinutes: 15
+
+  - id: ap-partner
+    type:
+      settings:
+        schema: builtin:alerting.profile
+        scope: environment
+    config:
+      name: Selfcare Partners on-call
+      template: alerting-profile.json
+      parameters:
+        profileName: Selfcare Partners on-call
+        managementZone:
+          type: reference
+          project: selfcare
+          configType: builtin:management-zones
+          configId: mz-partner
+          property: id
+        slowdownDelayMinutes: 15

@@ -1,0 +1,26 @@
+[
+  {
+    "scenario": "single-site fibre only",
+    "products": ["FIB-BIZ-1G"],
+    "sites": 1,
+    "monthlyValueMinor": 59900
+  },
+  {
+    "scenario": "multi-site fibre with VeloCloud SD-WAN",
+    "products": ["FIB-BIZ-1G", "SDWAN-VC-STD"],
+    "sites": 6,
+    "monthlyValueMinor": 612000
+  },
+  {
+    "scenario": "Fortinet SD-WAN with hosted voice",
+    "products": ["FIB-BIZ-500", "SDWAN-FTNT-ADV", "HOSTED-VOICE-25"],
+    "sites": 3,
+    "monthlyValueMinor": 284750
+  },
+  {
+    "scenario": "large campus 2 Gbps",
+    "products": ["FIB-BIZ-2G", "STATIC-IP-29"],
+    "sites": 12,
+    "monthlyValueMinor": 1980000
+  }
+]

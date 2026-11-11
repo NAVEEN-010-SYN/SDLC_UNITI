@@ -1,0 +1,17 @@
+{
+  "name": "{{ .name }}",
+  "enabled": true,
+  "description": "Share of {{ .requestName }} requests that did not fail server-side (5xx or timeout).",
+  "useRateMetric": false,
+  "metricNumerator": "builtin:service.keyRequest.successCount:filter(and(in(\"dt.entity.service_method\",entitySelector(\"type(SERVICE_METHOD),entityName.equals(~\"{{ .requestName }}~\"),fromRelationships.isServiceMethodOfService(type(SERVICE),tag(~\"{{ .serviceTag }}~\"))\")))):splitBy()",
+  "metricDenominator": "builtin:service.keyRequest.count.total:filter(and(in(\"dt.entity.service_method\",entitySelector(\"type(SERVICE_METHOD),entityName.equals(~\"{{ .requestName }}~\"),fromRelationships.isServiceMethodOfService(type(SERVICE),tag(~\"{{ .serviceTag }}~\"))\")))):splitBy()",
+  "evaluationType": "AGGREGATE",
+  "filter": "type(\"SERVICE\"),tag(\"{{ .serviceTag }}\"),mzName(\"{{ .mzName }}\")",
+  "target": {{ .target }},
+  "warning": {{ .warning }},
+  "timeframe": "{{ .timeframe }}",
+  "errorBudgetBurnRate": {
+    "burnRateVisualizationEnabled": true,
+    "fastBurnThreshold": 10
+  }
+}

@@ -1,0 +1,45 @@
+@page "{reference}"
+@model Uconnect.Web.Pages.Tickets.DetailsModel
+@{
+    var t = Model.Ticket!;
+    ViewData["Title"] = $"{t.Summary.Reference}: {t.Summary.Subject}";
+}
+<p>
+    <partial name="_StatusBadge" model="t.Summary.Status" /> Priority @t.Summary.Priority ·
+    raised @Display.When(t.Summary.CreatedAt) ·
+    @(t.FirstRespondedAt is null ? $"first response due {Display.When(t.FirstResponseDueAt)}" : $"target resolution {Display.When(t.Summary.ResolutionDueAt)}")
+</p>
+<blockquote>@t.Description</blockquote>
+@if (t.ResolutionSummary is not null)
+{
+    <div class="alert alert--ok"><strong>Resolution:</strong> @t.ResolutionSummary</div>
+}
+<ol class="timeline">
+    @foreach (var c in t.Comments)
+    {
+        <li class="@(c.IsAgent ? "agent" : "customer")">
+            <header>@c.AuthorName · @Display.When(c.CreatedAt)</header>
+            <p>@c.Body</p>
+        </li>
+    }
+</ol>
+@if (t.Summary.Status != "Closed")
+{
+    <form method="post" class="form">
+        <label asp-for="Message">@(t.CanReopen ? "Still having the problem? Tell us why" : "Add a message")</label>
+        <textarea asp-for="Message" rows="4" maxlength="4000"></textarea>
+        <span class="bad">@string.Join(" ", ViewData.ModelState.Where(kv => kv.Key is "Body" or "Reason").SelectMany(kv => kv.Value!.Errors).Select(e => e.ErrorMessage))</span>
+        @if (t.Summary.Status != "Resolved")
+        {
+            <button type="submit" asp-page-handler="Comment" class="button">Send message</button>
+        }
+        @if (t.CanReopen)
+        {
+            <button type="submit" asp-page-handler="Reopen" class="button">Reopen ticket</button>
+        }
+        @if (t.CanClose)
+        {
+            <button type="submit" asp-page-handler="Close" class="link">@(t.Summary.Status == "Resolved" ? "Confirm it's fixed" : "Withdraw ticket")</button>
+        }
+    </form>
+}

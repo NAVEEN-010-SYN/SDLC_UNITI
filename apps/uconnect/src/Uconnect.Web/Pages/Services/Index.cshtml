@@ -1,0 +1,47 @@
+@page
+@model Uconnect.Web.Pages.Services.IndexModel
+@{
+    ViewData["Title"] = "Your services";
+}
+<table class="grid">
+    <thead><tr><th>Service</th><th>Plan</th><th>Address</th><th>Monthly</th><th>Status</th></tr></thead>
+    <tbody>
+    @foreach (var s in Model.Services)
+    {
+        <tr>
+            <td><a asp-page="Details" asp-route-id="@s.Id">@s.ServiceReference</a></td>
+            <td>@s.Plan.Name @(s.HasPendingPlanChange ? "(change pending)" : null)</td>
+            <td>@s.ServiceAddress.Line1, @s.ServiceAddress.Postcode</td>
+            <td>@Display.Money(s.MonthlyPrice)</td>
+            <td><partial name="_StatusBadge" model="s.Status" /></td>
+        </tr>
+    }
+    </tbody>
+</table>
+
+@if (Model.PlanChanges.Count > 0)
+{
+    <h2>Plan changes</h2>
+    <table class="grid">
+        <thead><tr><th>Change</th><th>Effective</th><th>New price</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        @foreach (var c in Model.PlanChanges)
+        {
+            <tr>
+                <td>@c.FromPlanCode → @c.ToPlanCode (@c.ChangeType.ToLowerInvariant())</td>
+                <td>@Display.Date(c.EffectiveOn)</td>
+                <td>@Display.Money(c.NewMonthlyPrice)</td>
+                <td><partial name="_StatusBadge" model="c.Status" /> @c.FailureReason</td>
+                <td>
+                    @if (c.CanCancel && Model.CanManage)
+                    {
+                        <form method="post" asp-page-handler="CancelChange" asp-route-planChangeId="@c.Id">
+                            <button type="submit" class="link">Cancel</button>
+                        </form>
+                    }
+                </td>
+            </tr>
+        }
+        </tbody>
+    </table>
+}

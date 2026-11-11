@@ -1,0 +1,5 @@
+priority,first_response_minutes,resolution_minutes,description
+P1,15,240,Total loss of service or security incident
+P2,60,480,Degraded service affecting multiple users
+P3,240,2880,Single user or non-critical feature impaired
+P4,1440,7200,Question or cosmetic issue

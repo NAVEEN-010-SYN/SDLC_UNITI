@@ -1,0 +1,66 @@
+@page
+@model Uconnect.Web.Pages.Appointments.BookModel
+@{
+    ViewData["Title"] = Model.Reference is null ? "Book an engineer visit" : $"Reschedule {Model.Reference}";
+    var types = new[] { "Repair", "Installation", "Upgrade", "Survey" };
+}
+@if (Model.Reference is null)
+{
+    <form method="get" class="form inline">
+        <select asp-for="Type">
+            @foreach (var t in types)
+            {
+                <option value="@t" selected="@(t == Model.Type)">@t</option>
+            }
+        </select>
+        <select asp-for="ServiceId">
+            <option value="">No specific service</option>
+            @foreach (var s in Model.Services)
+            {
+                <option value="@s.Id" selected="@(s.Id == Model.ServiceId)">@s.ServiceReference, @s.ServiceAddress.Postcode</option>
+            }
+        </select>
+        @if (Model.Type == "Repair")
+        {
+            <input asp-for="TicketReference" placeholder="Fault ticket, e.g. TKT-000123" />
+        }
+        <button type="submit">Find times</button>
+    </form>
+}
+<form method="post" class="form">
+    <input type="hidden" asp-for="Type" />
+    <input type="hidden" asp-for="ServiceId" />
+    <input type="hidden" asp-for="TicketReference" />
+    <input type="hidden" asp-for="Reference" />
+    <fieldset class="slots">
+        <legend>Available windows</legend>
+        @if (Model.Slots.Count == 0)
+        {
+            <p>No windows are available in the next 30 days. Please contact us.</p>
+        }
+        @foreach (var slot in Model.Slots)
+        {
+            var value = $"{slot.Date:yyyy-MM-dd}|{slot.Window}";
+            <label><input type="radio" name="Slot" value="@value" checked="@(value == Model.Slot)" /> @Display.Date(slot.Date) @slot.Window.ToLowerInvariant()</label>
+        }
+        <span asp-validation-for="Slot" class="bad"></span>
+    </fieldset>
+    @if (Model.Reference is null)
+    {
+        <label asp-for="ContactName">Contact name</label>
+        <input asp-for="ContactName" />
+        <span asp-validation-for="ContactName" class="bad"></span>
+        <label asp-for="ContactPhone">Contact phone</label>
+        <input asp-for="ContactPhone" type="tel" />
+        <span asp-validation-for="ContactPhone" class="bad"></span>
+        <label asp-for="AccessNotes">Access notes (parking, gate codes, pets)</label>
+        <textarea asp-for="AccessNotes" maxlength="500"></textarea>
+    }
+    else
+    {
+        @* Contact details are unchanged when moving a visit; these satisfy the form's validation only. *@
+        <input type="hidden" name="ContactName" value="unchanged" />
+        <input type="hidden" name="ContactPhone" value="07000000000" />
+    }
+    <button type="submit" class="button">@(Model.Reference is null ? "Book visit" : "Move visit")</button>
+</form>

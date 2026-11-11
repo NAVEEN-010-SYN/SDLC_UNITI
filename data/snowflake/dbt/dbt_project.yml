@@ -1,0 +1,46 @@
+name: uniti_selfcare
+version: '1.0.0'
+config-version: 2
+require-dbt-version: ['>=1.7.0', '<2.0.0']
+profile: uniti_selfcare
+
+model-paths: ['models']
+seed-paths: ['seeds']
+macro-paths: ['macros']
+test-paths: ['tests']
+target-path: target
+clean-targets: ['target', 'dbt_packages']
+
+vars:
+  # Month boundary used by churn/ARPU marts; overridable for backfills.
+  reporting_start_month: '2023-01-01'
+  # An account with no active service for this many days is churned.
+  churn_grace_days: 30
+  # Days of late-arriving CDC re-processed by incremental models.
+  incremental_lookback_days: 3
+
+models:
+  uniti_selfcare:
+    +copy_grants: true
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table
+      +post-hook:
+        - "{{ apply_pii_tags() }}"
+        - "{{ apply_segment_policy() }}"
+      core:
+        +tags: ['core']
+      finance:
+        +tags: ['finance']
+
+seeds:
+  uniti_selfcare:
+    +schema: staging
+    ticket_sla_targets:
+      +column_types:
+        priority: varchar(2)
+        first_response_minutes: integer
+        resolution_minutes: integer

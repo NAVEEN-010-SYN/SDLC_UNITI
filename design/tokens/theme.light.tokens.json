@@ -1,0 +1,50 @@
+{
+  "$description": "Semantic tokens for the light theme. Components use only these.",
+  "color": {
+    "$type": "color",
+    "bg": {
+      "canvas":  { "$value": "{color.neutral.50}" },
+      "surface": { "$value": "{color.neutral.0}" },
+      "subtle":  { "$value": "{color.neutral.100}" },
+      "inverse": { "$value": "{color.neutral.900}" }
+    },
+    "text": {
+      "primary":   { "$value": "{color.neutral.900}" },
+      "secondary": { "$value": "{color.neutral.600}" },
+      "inverse":   { "$value": "{color.neutral.0}" },
+      "link":      { "$value": "{color.brand.600}" }
+    },
+    "border": {
+      "default": { "$value": "{color.neutral.200}" },
+      "strong":  { "$value": "{color.neutral.400}" },
+      "focus":   { "$value": "{color.brand.500}" }
+    },
+    "action": {
+      "primary":      { "$value": "{color.brand.600}" },
+      "primaryHover": { "$value": "{color.brand.700}" },
+      "onPrimary":    { "$value": "{color.neutral.0}" },
+      "secondary":    { "$value": "{color.brand.50}" }
+    },
+    "status": {
+      "success": { "$value": "{color.success.500}" },
+      "warning": { "$value": "{color.warning.500}" },
+      "danger":  { "$value": "{color.danger.500}" },
+      "info":    { "$value": "{color.brand.500}" }
+    },
+    "overlay": { "$value": "{color.scrim}" }
+  },
+  "elevation": {
+    "$type": "shadow",
+    "1": { "$value": { "color": "#171b221a", "offsetX": "0px", "offsetY": "1px", "blur": "3px", "spread": "0px" } },
+    "2": { "$value": { "color": "#171b2224", "offsetX": "0px", "offsetY": "4px", "blur": "12px", "spread": "-2px" } },
+    "3": { "$value": { "color": "#171b222e", "offsetX": "0px", "offsetY": "12px", "blur": "32px", "spread": "-4px" } }
+  },
+  "typography": {
+    "$type": "typography",
+    "display": { "$value": { "fontFamily": "{font.family.sans}", "fontSize": "{font.size.3xl}", "fontWeight": "{font.weight.bold}", "lineHeight": "{font.lineHeight.tight}" } },
+    "heading": { "$value": { "fontFamily": "{font.family.sans}", "fontSize": "{font.size.xl}", "fontWeight": "{font.weight.semibold}", "lineHeight": "{font.lineHeight.tight}" } },
+    "body":    { "$value": { "fontFamily": "{font.family.sans}", "fontSize": "{font.size.md}", "fontWeight": "{font.weight.regular}", "lineHeight": "{font.lineHeight.normal}" } },
+    "caption": { "$value": { "fontFamily": "{font.family.sans}", "fontSize": "{font.size.xs}", "fontWeight": "{font.weight.medium}", "lineHeight": "{font.lineHeight.normal}" } },
+    "amount":  { "$value": { "fontFamily": "{font.family.mono}", "fontSize": "{font.size.lg}", "fontWeight": "{font.weight.semibold}", "lineHeight": "{font.lineHeight.tight}" } }
+  }
+}

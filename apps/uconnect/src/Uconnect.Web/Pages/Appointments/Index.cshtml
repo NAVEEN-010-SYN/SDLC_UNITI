@@ -1,0 +1,33 @@
+@page
+@model Uconnect.Web.Pages.Appointments.IndexModel
+@{
+    ViewData["Title"] = "Engineer visits";
+}
+<p><a class="button" asp-page="Book" asp-route-type="Survey">Book a visit</a></p>
+@if (Model.Appointments.Count == 0)
+{
+    <p>You have no engineer visits.</p>
+}
+@foreach (var a in Model.Appointments)
+{
+    <article class="card">
+        <h2>@a.Type visit @a.Reference <partial name="_StatusBadge" model="a.Status" /></h2>
+        <p>@Display.Date(a.Date), @a.Window.ToLowerInvariant() (@Display.When(a.WindowStartsAt) to @Display.When(a.WindowEndsAt))</p>
+        <p>@a.VisitAddress.Line1, @a.VisitAddress.Postcode · contact @a.ContactName @(a.EngineerName is null ? null : $"· engineer {a.EngineerName}")</p>
+        @if (a.CanChange)
+        {
+            <a asp-page="Book" asp-route-reference="@a.Reference" asp-route-type="@a.Type" asp-route-serviceId="@a.ServiceId">Reschedule</a>
+        }
+        @if (a.Status is "Requested" or "Confirmed")
+        {
+            <form method="post" asp-page-handler="Cancel" asp-route-reference="@a.Reference" class="inline">
+                <input name="reason" required maxlength="500" placeholder="Reason for cancelling" />
+                <button type="submit" class="link">Cancel visit</button>
+            </form>
+            @if (!a.CanChange)
+            {
+                <p class="hint">This visit is less than 24 hours away; cancelling now may incur a call-out fee.</p>
+            }
+        }
+    </article>
+}

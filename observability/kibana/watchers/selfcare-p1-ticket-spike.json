@@ -1,0 +1,95 @@
+{
+  "metadata": {
+    "description": "Detects a burst of P1 tickets, which usually means a network outage customers noticed before monitoring did. Fires when the last 15 minutes exceed both an absolute floor and 3x the same-window average over the previous 7 days.",
+    "min_count": 5,
+    "multiplier": 3,
+    "runbook": "observability/runbooks/selfcare-incident-runbook.md#p1-ticket-spike"
+  },
+  "trigger": {
+    "schedule": { "interval": "5m" }
+  },
+  "input": {
+    "chain": {
+      "inputs": [
+        {
+          "current": {
+            "search": {
+              "request": {
+                "indices": ["selfcare-logs-*"],
+                "body": {
+                  "size": 0,
+                  "track_total_hits": true,
+                  "query": {
+                    "bool": {
+                      "filter": [
+                        { "range": { "ts": { "gte": "now-15m" } } },
+                        { "term": { "msg.keyword": "ticket.created" } },
+                        { "term": { "priority.keyword": "P1" } }
+                      ]
+                    }
+                  },
+                  "aggs": {
+                    "categories": { "terms": { "field": "category.keyword", "size": 5 } },
+                    "postcodes": { "terms": { "field": "serviceZip5.keyword", "size": 5 } }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "baseline": {
+            "search": {
+              "request": {
+                "indices": ["selfcare-logs-*"],
+                "body": {
+                  "size": 0,
+                  "track_total_hits": true,
+                  "query": {
+                    "bool": {
+                      "filter": [
+                        { "range": { "ts": { "gte": "now-7d", "lt": "now-15m" } } },
+                        { "term": { "msg.keyword": "ticket.created" } },
+                        { "term": { "priority.keyword": "P1" } }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "condition": {
+    "script": {
+      "lang": "painless",
+      "source": "long current = ctx.payload.current.hits.total.value; double windows = (7 * 24 * 60 - 15) / 15.0; double baseline = ctx.payload.baseline.hits.total.value / windows; return current >= ctx.metadata.min_count && current > baseline * ctx.metadata.multiplier;"
+    }
+  },
+  "throttle_period": "30m",
+  "actions": {
+    "slack": {
+      "slack": {
+        "account": "uniti-ops",
+        "message": {
+          "to": ["#selfcare-alerts", "#noc"],
+          "text": "P1 ticket spike: {{ctx.payload.current.hits.total.value}} in 15m",
+          "attachments": [
+            {
+              "color": "danger",
+              "text": "Top categories: {{#ctx.payload.current.aggregations.categories.buckets}}{{key}} ({{doc_count}}) {{/ctx.payload.current.aggregations.categories.buckets}}\nTop ZIPs: {{#ctx.payload.current.aggregations.postcodes.buckets}}{{key}} ({{doc_count}}) {{/ctx.payload.current.aggregations.postcodes.buckets}}\nRunbook: {{ctx.metadata.runbook}}"
+            }
+          ]
+        }
+      }
+    },
+    "index_event": {
+      "index": {
+        "index": "selfcare-alert-history",
+        "execution_time_field": "triggered_at"
+      }
+    }
+  }
+}

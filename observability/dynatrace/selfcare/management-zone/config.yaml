@@ -1,0 +1,48 @@
+# One management zone per portal, scoped by the `app` tag every service sets via
+# DT_TAGS (app:<folder name under apps/>). Zones drive dashboards, alert routing
+# and RBAC for the owning team.
+configs:
+  - id: mz-b2c
+    type:
+      settings:
+        schema: builtin:management-zones
+        scope: environment
+    config:
+      name: Selfcare B2C
+      template: management-zone.json
+      parameters:
+        zoneName: Selfcare B2C
+        description: GoKinetic consumer storefront, Uconnect, consumer iOS and UCE shell
+        appTags:
+          type: value
+          value: [ecom-gokinetic, uconnect, gokinetic-consumer-ios, uce, chatbot]
+
+  - id: mz-b2b
+    type:
+      settings:
+        schema: builtin:management-zones
+        scope: environment
+    config:
+      name: Selfcare B2B
+      template: management-zone.json
+      parameters:
+        zoneName: Selfcare B2B
+        description: Business self-care, SD-WAN and hosted services
+        appTags:
+          type: value
+          value: [gokinetic-business, sdwan-portal, hosted-services, uconnect]
+
+  - id: mz-partner
+    type:
+      settings:
+        schema: builtin:management-zones
+        scope: environment
+    config:
+      name: Selfcare Partners
+      template: management-zone.json
+      parameters:
+        zoneName: Selfcare Partners
+        description: Enterprise partner portal and iConnect wholesale
+        appTags:
+          type: value
+          value: [enterprise-partner-portal, iconnect-wholesale]

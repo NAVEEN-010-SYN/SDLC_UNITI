@@ -1,0 +1,26 @@
+@page
+@model Uconnect.Web.Pages.Appointments.OutagesModel
+@{
+    ViewData["Title"] = "Service status";
+}
+@if (Model.Outages.Count == 0)
+{
+    <div class="alert alert--ok">There are no known problems affecting your services.</div>
+}
+@foreach (var item in Model.Outages)
+{
+    var o = item.Outage;
+    <article class="card">
+        <h2>@o.Title <partial name="_StatusBadge" model="o.Severity" /> <partial name="_StatusBadge" model="o.Status" /></h2>
+        <p>
+            Affecting @string.Join(", ", item.AffectedServiceReferences) · started @Display.When(o.StartedAt)
+            @(o.ResolvedAt is { } fixedAt ? $"· fixed {Display.When(fixedAt)}" : o.EstimatedResolutionAt is { } eta ? $"· expected fix {Display.When(eta)}" : null)
+        </p>
+        <ol class="timeline">
+            @foreach (var u in o.Updates)
+            {
+                <li><header>@Display.When(u.PostedAt) · @u.Status</header><p>@u.Message</p></li>
+            }
+        </ol>
+    </article>
+}

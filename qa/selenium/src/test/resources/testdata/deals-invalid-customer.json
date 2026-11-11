@@ -1,0 +1,30 @@
+[
+  {
+    "scenario": "blank customer name",
+    "customerName": "",
+    "customerDomain": "acme-freight.qa.example.net",
+    "contactEmail": "it@acme-freight.qa.example.net",
+    "invalidField": "customerName"
+  },
+  {
+    "scenario": "domain with scheme",
+    "customerName": "Acme Freight",
+    "customerDomain": "https://acme-freight.qa.example.net",
+    "contactEmail": "it@acme-freight.qa.example.net",
+    "invalidField": "customerDomain"
+  },
+  {
+    "scenario": "free-mail contact",
+    "customerName": "Acme Freight",
+    "customerDomain": "acme-freight.qa.example.net",
+    "contactEmail": "acme.it@gmail.com",
+    "invalidField": "contactEmail"
+  },
+  {
+    "scenario": "contact not on customer domain",
+    "customerName": "Acme Freight",
+    "customerDomain": "acme-freight.qa.example.net",
+    "contactEmail": "it@another-company.example.net",
+    "invalidField": "contactEmail"
+  }
+]

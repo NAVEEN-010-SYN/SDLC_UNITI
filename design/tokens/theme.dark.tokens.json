@@ -1,0 +1,41 @@
+{
+  "$description": "Dark theme overrides. Any semantic token not listed here falls back to the light theme value.",
+  "color": {
+    "$type": "color",
+    "bg": {
+      "canvas":  { "$value": "{color.neutral.950}" },
+      "surface": { "$value": "{color.neutral.900}" },
+      "subtle":  { "$value": "{color.neutral.800}" },
+      "inverse": { "$value": "{color.neutral.50}" }
+    },
+    "text": {
+      "primary":   { "$value": "{color.neutral.50}" },
+      "secondary": { "$value": "{color.neutral.400}" },
+      "inverse":   { "$value": "{color.neutral.900}" },
+      "link":      { "$value": "{color.brand.300}" }
+    },
+    "border": {
+      "default": { "$value": "{color.neutral.800}" },
+      "strong":  { "$value": "{color.neutral.600}" },
+      "focus":   { "$value": "{color.brand.300}" }
+    },
+    "action": {
+      "primary":      { "$value": "{color.brand.500}" },
+      "primaryHover": { "$value": "{color.brand.300}" },
+      "onPrimary":    { "$value": "{color.neutral.950}" },
+      "secondary":    { "$value": "{color.brand.900}" }
+    },
+    "status": {
+      "success": { "$value": "{color.success.300}" },
+      "warning": { "$value": "{color.warning.300}" },
+      "danger":  { "$value": "{color.danger.300}" },
+      "info":    { "$value": "{color.brand.300}" }
+    }
+  },
+  "elevation": {
+    "$type": "shadow",
+    "1": { "$value": { "color": "#00000066", "offsetX": "0px", "offsetY": "1px", "blur": "3px", "spread": "0px" } },
+    "2": { "$value": { "color": "#00000080", "offsetX": "0px", "offsetY": "4px", "blur": "12px", "spread": "-2px" } },
+    "3": { "$value": { "color": "#00000099", "offsetX": "0px", "offsetY": "12px", "blur": "32px", "spread": "-4px" } }
+  }
+}

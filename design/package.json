@@ -1,0 +1,27 @@
+{
+  "name": "@uniti/design-tokens",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Uniti design tokens (W3C format) and exporters to CSS, SCSS, TypeScript and Swift.",
+  "bin": {
+    "design-tokens": "dist-cli/cli.js"
+  },
+  "scripts": {
+    "compile": "tsc -p tsconfig.json",
+    "pull": "ts-node src/cli.ts pull",
+    "build": "ts-node src/cli.ts build",
+    "test": "jest",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.10",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.4"
+  }
+}

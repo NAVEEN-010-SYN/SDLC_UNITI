@@ -1,0 +1,361 @@
+{
+  "info": {
+    "_postman_id": "6a1f0d8e-3c2b-4b7e-9f1a-0e5d2c7b4a01",
+    "name": "Uniti eCom - Catalogue & Orders",
+    "description": "GoKinetic eCom API: catalogue, serviceability, cart and order lifecycle (DRAFT -> SUBMITTED -> VALIDATED -> PROVISIONING -> ACTIVE). Run with the dev or staging environment. Requests chain through collection variables (orderId).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [{ "key": "token", "value": "{{accessToken}}", "type": "string" }]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Fetch (or reuse) a client-credentials token and stamp a correlation id on every request.",
+          "const now = Date.now();",
+          "const expiresAt = Number(pm.collectionVariables.get('accessTokenExpiresAt') || 0);",
+          "if (!pm.collectionVariables.get('accessToken') || expiresAt - 60000 < now) {",
+          "  pm.sendRequest({",
+          "    url: pm.environment.get('oidcTokenUrl'),",
+          "    method: 'POST',",
+          "    header: { 'Content-Type': 'application/x-www-form-urlencoded' },",
+          "    body: {",
+          "      mode: 'urlencoded',",
+          "      urlencoded: [",
+          "        { key: 'grant_type', value: 'client_credentials' },",
+          "        { key: 'client_id', value: pm.environment.get('oidcClientId') },",
+          "        { key: 'client_secret', value: pm.environment.get('oidcClientSecret') },",
+          "        { key: 'scope', value: pm.environment.get('oidcScope') }",
+          "      ]",
+          "    }",
+          "  }, (err, res) => {",
+          "    if (err || res.code !== 200) {",
+          "      throw new Error('Token request failed: ' + (err || res.status));",
+          "    }",
+          "    const body = res.json();",
+          "    pm.collectionVariables.set('accessToken', body.access_token);",
+          "    pm.collectionVariables.set('accessTokenExpiresAt', String(now + body.expires_in * 1000));",
+          "  });",
+          "}",
+          "const correlationId = pm.variables.replaceIn('{{$guid}}');",
+          "pm.variables.set('correlationId', correlationId);",
+          "pm.request.headers.upsert({ key: 'X-Correlation-Id', value: correlationId });",
+          "pm.request.headers.upsert({ key: 'Accept', value: 'application/json, application/problem+json' });"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('correlation id is echoed', () => {",
+          "  pm.expect(pm.response.headers.get('X-Correlation-Id')).to.eql(pm.variables.get('correlationId'));",
+          "});",
+          "pm.test('response time under SLO (800 ms)', () => {",
+          "  pm.expect(pm.response.responseTime).to.be.below(800);",
+          "});",
+          "if (pm.response.code >= 400) {",
+          "  pm.test('errors are RFC 7807 problem+json', () => {",
+          "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+          "    const problem = pm.response.json();",
+          "    pm.expect(problem).to.include.keys('type', 'title', 'status');",
+          "    pm.expect(problem.status).to.eql(pm.response.code);",
+          "  });",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "accessToken", "value": "" },
+    { "key": "accessTokenExpiresAt", "value": "0" },
+    { "key": "orderId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Catalogue",
+      "item": [
+        {
+          "name": "List B2C products (paged)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const schema = {",
+                  "  type: 'object',",
+                  "  required: ['items', 'page', 'pageSize', 'total'],",
+                  "  properties: {",
+                  "    page: { type: 'integer', minimum: 1 },",
+                  "    pageSize: { type: 'integer', maximum: 100 },",
+                  "    total: { type: 'integer', minimum: 0 },",
+                  "    items: { type: 'array', items: {",
+                  "      type: 'object',",
+                  "      required: ['sku', 'name', 'category', 'monthlyPrice', 'segment'],",
+                  "      properties: {",
+                  "        monthlyPrice: { type: 'object', required: ['amountMinor', 'currency'], properties: { amountMinor: { type: 'integer' }, currency: { type: 'string', pattern: '^[A-Z]{3}$' } } },",
+                  "        segment: { enum: ['B2C'] }",
+                  "      }",
+                  "    } }",
+                  "  }",
+                  "};",
+                  "pm.test('matches paged product schema', () => pm.response.to.have.jsonSchema(schema));",
+                  "pm.test('pageSize honoured', () => pm.expect(pm.response.json().items.length).to.be.at.most(20));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/catalogue/products?segment=B2C&page=1&pageSize=20",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "catalogue", "products"],
+              "query": [
+                { "key": "segment", "value": "B2C" },
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Reject oversize pageSize",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('field error references pageSize', () => {",
+                  "  const fields = (pm.response.json().errors || []).map(e => e.field);",
+                  "  pm.expect(fields).to.include('pageSize');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/catalogue/products?page=1&pageSize=500",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "catalogue", "products"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "pageSize", "value": "500" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Check serviceability",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('address is serviceable with max speed', () => {",
+                  "  pm.expect(body.serviceable).to.be.true;",
+                  "  pm.expect(body.maxDownloadMbps).to.be.a('number').and.at.least(100);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"line1\": \"1200 Fibre Way\",\n  \"city\": \"Little Rock\",\n  \"state\": \"AR\",\n  \"postalCode\": \"72201\",\n  \"country\": \"US\"\n}"
+            },
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/catalogue/serviceability",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "catalogue", "serviceability"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create order",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.variables.set('externalReference', 'QA-PM-' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created with Location', () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.expect(pm.response.headers.get('Location')).to.match(/\\/api\\/v1\\/orders\\/ORD-\\d{8}$/);",
+                  "});",
+                  "const order = pm.response.json();",
+                  "pm.test('order is SUBMITTED with integer total', () => {",
+                  "  pm.expect(order.id).to.match(/^ORD-\\d{8}$/);",
+                  "  pm.expect(order.status).to.eql('SUBMITTED');",
+                  "  pm.expect(Number.isInteger(order.total.amountMinor)).to.be.true;",
+                  "  pm.expect(order.createdAt).to.match(/Z$/);",
+                  "});",
+                  "pm.collectionVariables.set('orderId', order.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Idempotency-Key", "value": "{{externalReference}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"externalReference\": \"{{externalReference}}\",\n  \"lines\": [\n    { \"sku\": \"FIB-1000\", \"quantity\": 1 },\n    { \"sku\": \"WIFI-MESH\", \"quantity\": 1 }\n  ],\n  \"serviceAddress\": {\n    \"line1\": \"1200 Fibre Way\",\n    \"city\": \"Little Rock\",\n    \"state\": \"AR\",\n    \"postalCode\": \"72201\",\n    \"country\": \"US\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/orders",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Get order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('returns the created order', () => {",
+                  "  const order = pm.response.json();",
+                  "  pm.expect(order.id).to.eql(pm.collectionVariables.get('orderId'));",
+                  "  pm.expect(['SUBMITTED', 'VALIDATED', 'PROVISIONING']).to.include(order.status);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/orders/{{orderId}}",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "orders", "{{orderId}}"]
+            }
+          }
+        },
+        {
+          "name": "Create order - empty lines rejected",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 with lines field error', () => {",
+                  "  pm.response.to.have.status(400);",
+                  "  const fields = pm.response.json().errors.map(e => e.field);",
+                  "  pm.expect(fields).to.include('lines');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"accountId\": \"{{accountId}}\",\n  \"externalReference\": \"QA-PM-EMPTY\",\n  \"lines\": [],\n  \"serviceAddress\": { \"line1\": \"1200 Fibre Way\", \"city\": \"Little Rock\", \"state\": \"AR\", \"postalCode\": \"72201\", \"country\": \"US\" }\n}"
+            },
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/orders",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "orders"]
+            }
+          }
+        },
+        {
+          "name": "Cancel order",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK and CANCELLED', () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().status).to.eql('CANCELLED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"QA_CLEANUP\"\n}" },
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/orders/{{orderId}}/cancel",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "orders", "{{orderId}}", "cancel"]
+            }
+          }
+        },
+        {
+          "name": "Cancel already-cancelled order conflicts",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));",
+                  "pm.test('problem type identifies invalid transition', () => {",
+                  "  pm.expect(pm.response.json().type).to.include('invalid-order-transition');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"QA_CLEANUP\"\n}" },
+            "url": {
+              "raw": "{{ecomApiBaseUrl}}/api/v1/orders/{{orderId}}/cancel",
+              "host": ["{{ecomApiBaseUrl}}"],
+              "path": ["api", "v1", "orders", "{{orderId}}", "cancel"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

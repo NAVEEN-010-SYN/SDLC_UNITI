@@ -1,0 +1,88 @@
+{
+  "$description": "Primitive tokens. Never referenced directly by components; themes alias into these.",
+  "color": {
+    "$type": "color",
+    "brand": {
+      "50":  { "$value": "#eef6ff" },
+      "100": { "$value": "#d9eaff" },
+      "300": { "$value": "#7db8ff" },
+      "500": { "$value": "#1f7aff" },
+      "600": { "$value": "#0a5fe0" },
+      "700": { "$value": "#084bb3" },
+      "900": { "$value": "#06265c" }
+    },
+    "accent": {
+      "400": { "$value": "#36d6b0" },
+      "600": { "$value": "#0fa383" }
+    },
+    "neutral": {
+      "0":   { "$value": "#ffffff" },
+      "50":  { "$value": "#f6f7f9" },
+      "100": { "$value": "#eceef2" },
+      "200": { "$value": "#d8dce3" },
+      "400": { "$value": "#98a0ae" },
+      "600": { "$value": "#5b6474" },
+      "800": { "$value": "#2a303b" },
+      "900": { "$value": "#171b22" },
+      "950": { "$value": "#0d1015" }
+    },
+    "success": { "500": { "$value": "#1e9e5a" }, "300": { "$value": "#6fd39d" } },
+    "warning": { "500": { "$value": "#c98a00" }, "300": { "$value": "#ffcf5c" } },
+    "danger":  { "500": { "$value": "#d63b3b" }, "300": { "$value": "#ff8a8a" } },
+    "scrim":   { "$value": "#0d101599" }
+  },
+  "font": {
+    "family": {
+      "$type": "fontFamily",
+      "sans": { "$value": ["Inter", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "sans-serif"] },
+      "mono": { "$value": ["JetBrains Mono", "SFMono-Regular", "Consolas", "monospace"] }
+    },
+    "weight": {
+      "$type": "fontWeight",
+      "regular":  { "$value": 400 },
+      "medium":   { "$value": 500 },
+      "semibold": { "$value": 600 },
+      "bold":     { "$value": 700 }
+    },
+    "size": {
+      "$type": "dimension",
+      "xs":  { "$value": "12px" },
+      "sm":  { "$value": "14px" },
+      "md":  { "$value": "16px" },
+      "lg":  { "$value": "18px" },
+      "xl":  { "$value": "22px" },
+      "2xl": { "$value": "28px" },
+      "3xl": { "$value": "36px" }
+    },
+    "lineHeight": {
+      "$type": "number",
+      "tight":  { "$value": 1.2 },
+      "normal": { "$value": 1.5 }
+    }
+  },
+  "space": {
+    "$type": "dimension",
+    "0":  { "$value": "0px" },
+    "1":  { "$value": "4px" },
+    "2":  { "$value": "8px" },
+    "3":  { "$value": "12px" },
+    "4":  { "$value": "16px" },
+    "6":  { "$value": "24px" },
+    "8":  { "$value": "32px" },
+    "12": { "$value": "48px" },
+    "16": { "$value": "64px" }
+  },
+  "radius": {
+    "$type": "dimension",
+    "none": { "$value": "0px" },
+    "sm":   { "$value": "4px" },
+    "md":   { "$value": "8px" },
+    "lg":   { "$value": "16px" },
+    "pill": { "$value": "999px" }
+  },
+  "duration": {
+    "$type": "duration",
+    "fast":   { "$value": "120ms" },
+    "normal": { "$value": "200ms" }
+  }
+}

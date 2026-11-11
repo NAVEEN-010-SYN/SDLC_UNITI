@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <RootNamespace>Uconnect.Web</RootNamespace>
+    <Description>Uconnect customer portal (Razor Pages). Talks to Uconnect.Api only; shares its DTO contracts.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Referenced for the DTO contracts only; the portal never touches repositories or the database. -->
+    <ProjectReference Include="..\Uconnect.Application\Uconnect.Application.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="8.0.8" />
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="8.8.0" />
+  </ItemGroup>
+
+</Project>

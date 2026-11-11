@@ -1,0 +1,109 @@
+version: 2
+
+models:
+  - name: dim_account
+    description: Conformed account dimension across Uconnect, eCom and iConnect.
+    columns:
+      - name: account_key
+        tests: [unique, not_null]
+      - name: account_number
+        tests: [unique, not_null]
+      - name: segment
+        tests:
+          - accepted_values:
+              values: [CONSUMER, BUSINESS, WHOLESALE]
+      - name: display_name
+        meta: { pii_class: NAME }
+      - name: contact_email
+        meta: { pii_class: EMAIL }
+      - name: contact_phone
+        meta: { pii_class: PHONE }
+
+  - name: dim_product
+    columns:
+      - name: product_key
+        tests: [unique, not_null]
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "valid_to > valid_from"
+
+  - name: dim_date
+    columns:
+      - name: date_key
+        tests: [unique, not_null]
+
+  - name: fact_orders
+    columns:
+      - name: order_key
+        tests: [unique, not_null]
+      - name: account_key
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_account')
+              field: account_key
+      - name: segment
+        tests:
+          - accepted_values:
+              values: [CONSUMER, BUSINESS, WHOLESALE]
+      - name: order_status
+        tests:
+          - accepted_values:
+              values: [DRAFT, SUBMITTED, VALIDATED, PROVISIONING, ACTIVE, CANCELLED, FAILED]
+      - name: monthly_recurring_minor
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+      - name: product_key
+        tests:
+          - not_null:
+              config:
+                severity: warn
+                where: "source_system = 'ECOM'"
+
+  - name: fact_invoices
+    columns:
+      - name: invoice_id
+        tests: [unique, not_null]
+      - name: account_key
+        tests: [not_null]
+      - name: balance_due_minor
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "total_minor = subtotal_minor + tax_minor"
+
+  - name: fact_payments
+    columns:
+      - name: payment_id
+        tests: [unique, not_null]
+      - name: net_collected_minor
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+  - name: fact_tickets
+    columns:
+      - name: ticket_id
+        tests: [unique, not_null]
+      - name: resolution_target_minutes
+        description: Null means the priority is missing from the ticket_sla_targets seed.
+        tests: [not_null]
+      - name: paused_minutes
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: ">= 0"
+
+  - name: mart_arpu_monthly
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [month_start, segment, currency]
+
+  - name: mart_churn_monthly
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [month_start, segment]
+      - dbt_utils.expression_is_true:
+          expression: "closing_accounts = opening_accounts + gross_adds - churned_accounts - winbacks_within_grace"

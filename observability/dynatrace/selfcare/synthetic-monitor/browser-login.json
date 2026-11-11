@@ -1,0 +1,67 @@
+{
+  "name": "{{ .monitorName }}",
+  "frequencyMin": {{ .frequencyMin }},
+  "enabled": true,
+  "type": "BROWSER",
+  "locations": [{{ range $i, $l := .locations }}{{ if $i }}, {{ end }}"{{ $l }}"{{ end }}],
+  "tags": [{ "key": "app", "value": "{{ .appTag }}" }, { "key": "journey", "value": "login" }],
+  "anomalyDetection": {
+    "outageHandling": {
+      "globalOutage": true,
+      "globalOutagePolicy": { "consecutiveRuns": 2 },
+      "localOutage": true,
+      "localOutagePolicy": { "affectedLocations": 1, "consecutiveRuns": 3 }
+    },
+    "loadingTimeThresholds": {
+      "enabled": true,
+      "thresholds": [{ "type": "TOTAL", "valueMs": 8000 }]
+    }
+  },
+  "script": {
+    "type": "clickpath",
+    "version": "1.0",
+    "configuration": {
+      "device": { "deviceName": "Desktop", "orientation": "landscape" },
+      "requestHeaders": { "headers": [{ "name": "X-Synthetic-Monitor", "value": "dynatrace" }] },
+      "disableWebSecurity": false
+    },
+    "events": [
+      {
+        "type": "navigate",
+        "description": "Open login page",
+        "url": "{{ .startUrl }}",
+        "wait": { "waitFor": "page_complete" },
+        "validate": [{ "type": "content_match", "match": "Sign in", "failIfFound": false, "isRegex": false }]
+      },
+      {
+        "type": "keystrokes",
+        "description": "Enter email",
+        "target": { "locators": [{ "type": "css", "value": "input[name='email']" }] },
+        "credential": { "type": "USERNAME_PASSWORD", "field": "username", "id": "{{ .credentialId }}" },
+        "wait": { "waitFor": "time", "milliseconds": 200 }
+      },
+      {
+        "type": "keystrokes",
+        "description": "Enter password",
+        "target": { "locators": [{ "type": "css", "value": "input[name='password']" }] },
+        "credential": { "type": "USERNAME_PASSWORD", "field": "password", "id": "{{ .credentialId }}" },
+        "masked": true,
+        "wait": { "waitFor": "time", "milliseconds": 200 }
+      },
+      {
+        "type": "click",
+        "description": "Submit sign-in",
+        "target": { "locators": [{ "type": "css", "value": "button[type='submit']" }] },
+        "button": 0,
+        "wait": { "waitFor": "validation", "timeoutInMilliseconds": 15000,
+                  "validation": { "type": "content_match", "match": "{{ .landingText }}", "failIfFound": false, "isRegex": false } }
+      },
+      {
+        "type": "javascript",
+        "description": "Fail if an error banner is visible",
+        "javaScript": "if (document.querySelector('[role=\"alert\"].error')) { api.fail('Login error banner: ' + document.querySelector('[role=\"alert\"].error').textContent); }",
+        "wait": { "waitFor": "time", "milliseconds": 0 }
+      }
+    ]
+  }
+}

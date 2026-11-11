@@ -1,0 +1,15 @@
+{
+  "name": "{{ .name }}",
+  "enabled": true,
+  "description": "Share of {{ .requestName }} requests answered within {{ .thresholdMicros }} microseconds.",
+  "metricExpression": "(100)*(builtin:service.keyRequest.response.server:filter(and(in(\"dt.entity.service_method\",entitySelector(\"type(SERVICE_METHOD),entityName.equals(~\"{{ .requestName }}~\"),fromRelationships.isServiceMethodOfService(type(SERVICE),tag(~\"{{ .serviceTag }}~\"))\")))):partition(\"latency\",value(\"good\",lt({{ .thresholdMicros }}))):splitBy():count:default(0))/(builtin:service.keyRequest.response.server:filter(and(in(\"dt.entity.service_method\",entitySelector(\"type(SERVICE_METHOD),entityName.equals(~\"{{ .requestName }}~\"),fromRelationships.isServiceMethodOfService(type(SERVICE),tag(~\"{{ .serviceTag }}~\"))\")))):splitBy():count)",
+  "evaluationType": "AGGREGATE",
+  "filter": "type(\"SERVICE\"),tag(\"{{ .serviceTag }}\"),mzName(\"{{ .mzName }}\")",
+  "target": {{ .target }},
+  "warning": {{ .warning }},
+  "timeframe": "{{ .timeframe }}",
+  "errorBudgetBurnRate": {
+    "burnRateVisualizationEnabled": true,
+    "fastBurnThreshold": 10
+  }
+}

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>Uconnect.Domain</RootNamespace>
+    <Description>Uconnect domain model: accounts, services, plans, billing, payments, tickets and appointments.</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="Uconnect.Tests" />
+  </ItemGroup>
+
+</Project>

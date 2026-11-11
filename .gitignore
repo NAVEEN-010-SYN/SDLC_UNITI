@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+vendor/
+.build/
+Packages/
+*.xcodeproj/xcuserdata/
+
+# Build output
+dist/
+build/
+out/
+target/
+bin/
+obj/
+coverage/
+*.log
+
+# Local environment and secrets (commit .env.example only)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+
+# dbt
+data/snowflake/dbt/target/
+data/snowflake/dbt/dbt_packages/
+data/snowflake/dbt/logs/
+profiles.yml
+
+# IDE / OS
+.idea/
+.vscode/
+*.suo
+*.user
+.DS_Store
+Thumbs.db

@@ -1,0 +1,324 @@
+openapi: 3.0.3
+info:
+  title: SD-WAN Portal - Sites & Edges API
+  version: 1.3.0
+  description: >
+    Vendor-neutral view of SD-WAN sites, edges and WAN link health across
+    VeloCloud and Fortinet controllers. `vendor` is the only vendor-specific field
+    exposed; everything else is normalised by the provider adapters.
+servers:
+  - url: https://sdwan-api.uniti.com
+security:
+  - bearerAuth: []
+tags:
+  - name: Sites
+  - name: Edges
+
+paths:
+  /api/v1/sdwan/sites:
+    get:
+      tags: [Sites]
+      operationId: listSites
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/AccountId'
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/PageSize'
+        - name: vendor
+          in: query
+          schema:
+            $ref: '#/components/schemas/Vendor'
+      responses:
+        '200':
+          description: Page of sites.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './common.yaml#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Site'
+        '400':
+          $ref: './common.yaml#/components/responses/BadRequest'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+
+  /api/v1/sdwan/edges:
+    get:
+      tags: [Edges]
+      operationId: listEdges
+      parameters:
+        - name: accountId
+          in: query
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/AccountId'
+        - name: siteId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/EdgeStatus'
+        - $ref: './common.yaml#/components/parameters/Page'
+        - $ref: './common.yaml#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: Page of edges with their WAN links.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: './common.yaml#/components/schemas/PageMeta'
+                  - type: object
+                    required: [items]
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Edge'
+        '403':
+          $ref: './common.yaml#/components/responses/Forbidden'
+        '502':
+          $ref: '#/components/responses/ControllerUnavailable'
+
+  /api/v1/sdwan/edges/{edgeId}:
+    parameters:
+      - $ref: '#/components/parameters/EdgeId'
+    get:
+      tags: [Edges]
+      operationId: getEdge
+      responses:
+        '200':
+          description: The edge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Edge'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+        '502':
+          $ref: '#/components/responses/ControllerUnavailable'
+
+  /api/v1/sdwan/edges/{edgeId}/health:
+    parameters:
+      - $ref: '#/components/parameters/EdgeId'
+    get:
+      tags: [Edges]
+      operationId: getEdgeHealth
+      summary: Aggregated per-link quality over a time range
+      parameters:
+        - name: from
+          in: query
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/Timestamp'
+        - name: to
+          in: query
+          required: true
+          schema:
+            $ref: './common.yaml#/components/schemas/Timestamp'
+        - name: bucket
+          in: query
+          schema:
+            type: string
+            enum: [5m, 1h, 1d]
+            default: 1h
+      responses:
+        '200':
+          description: Link health series and a 0-100 score per link.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EdgeHealth'
+        '400':
+          description: Range is inverted or exceeds 31 days.
+          content:
+            application/problem+json:
+              schema:
+                $ref: './common.yaml#/components/schemas/ValidationProblem'
+        '404':
+          $ref: './common.yaml#/components/responses/NotFound'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Roles BUSINESS_ADMIN, BUSINESS_USER, PARTNER_ADMIN, PARTNER_AGENT, SUPPORT_AGENT.
+
+  parameters:
+    EdgeId:
+      name: edgeId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 64
+
+  responses:
+    ControllerUnavailable:
+      description: The upstream VeloCloud Orchestrator or FortiManager failed or timed out.
+      content:
+        application/problem+json:
+          schema:
+            $ref: './common.yaml#/components/schemas/ProblemDetails'
+
+  schemas:
+    Vendor:
+      type: string
+      enum: [VELOCLOUD, FORTINET]
+
+    EdgeStatus:
+      type: string
+      enum: [UP, DEGRADED, DOWN, UNKNOWN]
+
+    Site:
+      type: object
+      required: [id, accountId, name, address, vendor, edgeIds]
+      properties:
+        id:
+          type: string
+        accountId:
+          $ref: './common.yaml#/components/schemas/AccountId'
+        name:
+          type: string
+        address:
+          type: object
+          required: [line1, city, postcode, country]
+          properties:
+            line1:
+              type: string
+            city:
+              type: string
+            postcode:
+              type: string
+            country:
+              type: string
+              pattern: '^[A-Z]{2}$'
+        vendor:
+          $ref: '#/components/schemas/Vendor'
+        region:
+          type: string
+        edgeIds:
+          type: array
+          items:
+            type: string
+
+    WanLink:
+      type: object
+      required: [id, name, interface, transport, bandwidthDownKbps, bandwidthUpKbps, state]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        interface:
+          type: string
+          example: GE3
+        transport:
+          type: string
+          enum: [FIBRE, BROADBAND, LTE, MPLS, UNKNOWN]
+        ispName:
+          type: string
+        publicIp:
+          type: string
+          format: ipv4
+        bandwidthDownKbps:
+          type: integer
+          minimum: 0
+        bandwidthUpKbps:
+          type: integer
+          minimum: 0
+        state:
+          type: string
+          enum: [UP, DOWN, STANDBY, UNKNOWN]
+
+    Edge:
+      type: object
+      required: [id, siteId, accountId, vendor, name, model, serialNumber, softwareVersion, status, haState, links]
+      properties:
+        id:
+          type: string
+        siteId:
+          type: string
+        accountId:
+          $ref: './common.yaml#/components/schemas/AccountId'
+        vendor:
+          $ref: '#/components/schemas/Vendor'
+        name:
+          type: string
+        model:
+          type: string
+          example: Edge 610
+        serialNumber:
+          type: string
+        softwareVersion:
+          type: string
+        status:
+          $ref: '#/components/schemas/EdgeStatus'
+        haState:
+          type: string
+          enum: [STANDALONE, ACTIVE, STANDBY, FAILED]
+        lastContact:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/WanLink'
+
+    EdgeHealth:
+      type: object
+      required: [edgeId, from, to, bucket, links]
+      properties:
+        edgeId:
+          type: string
+        from:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+        to:
+          $ref: './common.yaml#/components/schemas/Timestamp'
+        bucket:
+          type: string
+        links:
+          type: array
+          items:
+            type: object
+            required: [linkId, score, series]
+            properties:
+              linkId:
+                type: string
+              score:
+                type: integer
+                minimum: 0
+                maximum: 100
+              series:
+                type: array
+                items:
+                  type: object
+                  required: [timestamp, latencyMs, jitterMs, lossPct]
+                  properties:
+                    timestamp:
+                      $ref: './common.yaml#/components/schemas/Timestamp'
+                    latencyMs:
+                      type: number
+                    jitterMs:
+                      type: number
+                    lossPct:
+                      type: number
+                      minimum: 0
+                      maximum: 100
+                    rxBps:
+                      type: integer
+                    txBps:
+                      type: integer

@@ -1,0 +1,75 @@
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1c2430;
+  --muted: #5d6b7c;
+  --border: #dde2e8;
+  --accent: #5a2ca0;
+  --info: #1d5fbf;
+  --success: #1f7a4d;
+  --warning: #9a6200;
+  --danger: #b3261e;
+  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color: var(--text);
+  background: var(--bg);
+}
+
+body { margin: 0; }
+main { padding: 24px; max-width: 1280px; margin: 0 auto; }
+h1, h2, h3 { margin: 0 0 12px; }
+
+.topbar { display: flex; align-items: center; gap: 24px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.topbar nav { display: flex; gap: 16px; flex: 1; flex-wrap: wrap; }
+.topbar nav a { color: var(--muted); text-decoration: none; padding: 4px 0; }
+.topbar nav a.active { color: var(--accent); border-bottom: 2px solid var(--accent); }
+.topbar__user { display: flex; gap: 12px; align-items: center; }
+
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+.toolbar { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 16px; }
+.grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+.kpi__label { color: var(--muted); font-size: 0.85rem; }
+.kpi__value { font-size: 1.6rem; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+.table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+th { color: var(--muted); font-weight: 600; background: #fafbfc; }
+td.empty { text-align: center; color: var(--muted); padding: 24px; }
+.pager { display: flex; gap: 12px; align-items: center; justify-content: flex-end; padding: 10px 12px; }
+
+.money { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.money--negative { color: var(--danger); }
+
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; }
+.badge--neutral { background: #eceff3; color: var(--muted); }
+.badge--info { background: #e3edfb; color: var(--info); }
+.badge--success { background: #e1f3ea; color: var(--success); }
+.badge--warning { background: #fdf0d9; color: var(--warning); }
+.badge--danger { background: #fbe4e2; color: var(--danger); }
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 180px; }
+.field label { font-size: 0.85rem; color: var(--muted); }
+.field input, .field select, textarea { padding: 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+.field--invalid input, .field--invalid select { border-color: var(--danger); }
+.field__error { color: var(--danger); }
+
+button { padding: 8px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); cursor: pointer; font: inherit; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.banner { padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; }
+.banner--error { background: #fbe4e2; color: var(--danger); }
+.banner--info { background: #e3edfb; color: var(--info); }
+.banner--success { background: #e1f3ea; color: var(--success); }
+
+.pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.pipeline__column { background: #eef0f4; border-radius: 8px; padding: 12px; min-height: 120px; }
+.pipeline__card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin-top: 8px; font-size: 0.875rem; }
+
+dialog { border: 1px solid var(--border); border-radius: 8px; padding: 20px; max-width: 520px; }
+dl.breakdown { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0; }
+dl.breakdown dt { color: var(--muted); }
+dl.breakdown dd { margin: 0; text-align: right; }
+.loading { padding: 24px; color: var(--muted); }

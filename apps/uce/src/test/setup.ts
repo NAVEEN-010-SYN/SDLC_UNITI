@@ -1,0 +1,13 @@
+import '@testing-library/jest-dom/vitest';
+import { cleanup } from '@testing-library/react';
+import { afterEach } from 'vitest';
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  sessionStorage.clear();
+  document.head.querySelectorAll('script[id^="uce-"]').forEach((s) => s.remove());
+  delete window.clarity;
+  delete window.FS;
+  delete window.squatch;
+});

@@ -1,0 +1,128 @@
+version: 2
+
+models:
+  - name: stg_ecom__orders
+    columns:
+      - name: order_number
+        tests:
+          - unique
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "regexp_like(order_number, '^GK-[0-9]{8}-[A-Z0-9]{6}$')"
+      - name: account_number
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "regexp_like(account_number, '^ACC-[0-9]{8}$')"
+      - name: order_status
+        tests:
+          - accepted_values:
+              values: [DRAFT, SUBMITTED, VALIDATED, PROVISIONING, ACTIVE, CANCELLED, FAILED]
+      - name: segment
+        tests:
+          - accepted_values:
+              values: [CONSUMER, BUSINESS]
+      - name: due_today_minor
+        tests: [not_null]
+
+  - name: stg_ecom__order_items
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [order_number, line_number]
+    columns:
+      - name: quantity
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+
+  - name: stg_uconnect__accounts
+    columns:
+      - name: account_id
+        tests: [unique, not_null]
+      - name: account_number
+        tests: [unique, not_null]
+      - name: segment
+        tests:
+          - accepted_values:
+              values: [CONSUMER, BUSINESS]
+      - name: account_status
+        tests:
+          - accepted_values:
+              values: [ACTIVE, SUSPENDED, CLOSED]
+
+  - name: stg_uconnect__services
+    columns:
+      - name: service_id
+        tests: [unique, not_null]
+      - name: account_id
+        tests:
+          - relationships:
+              to: ref('stg_uconnect__accounts')
+              field: account_id
+      - name: service_status
+        tests:
+          - accepted_values:
+              values: [PENDING_ACTIVATION, ACTIVE, SUSPENDED, CANCELLED]
+
+  - name: stg_uconnect__invoices
+    columns:
+      - name: invoice_id
+        tests: [unique, not_null]
+      - name: invoice_status
+        tests:
+          - accepted_values:
+              values: [DRAFT, ISSUED, PARTIALLY_PAID, PAID, OVERDUE, VOID]
+      - name: total_minor
+        tests: [not_null]
+
+  - name: stg_uconnect__payments
+    columns:
+      - name: payment_id
+        tests: [unique, not_null]
+      - name: invoice_id
+        tests:
+          - relationships:
+              to: ref('stg_uconnect__invoices')
+              field: invoice_id
+      - name: amount_minor
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "> 0"
+      - name: payment_status
+        tests:
+          - accepted_values:
+              values: [PENDING, SUCCEEDED, FAILED, REFUNDED, PARTIALLY_REFUNDED]
+
+  - name: stg_uconnect__tickets
+    columns:
+      - name: ticket_id
+        tests: [unique, not_null]
+      - name: priority
+        tests:
+          - not_null
+          - accepted_values:
+              values: [P1, P2, P3, P4]
+      - name: ticket_status
+        tests:
+          - accepted_values:
+              values: [OPEN, IN_PROGRESS, PENDING_CUSTOMER, RESOLVED, CLOSED]
+
+  - name: stg_uconnect__ticket_status_intervals
+    tests:
+      - dbt_utils.expression_is_true:
+          expression: "exited_at is null or exited_at >= entered_at"
+
+  - name: stg_iconnect__orders
+    columns:
+      - name: order_id
+        tests: [unique, not_null]
+      - name: order_type
+        tests:
+          - accepted_values:
+              values: [PROVIDE, CEASE, MODIFY, MIGRATE]
+
+  - name: stg_catalog__products
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          combination_of_columns: [sku, valid_from]

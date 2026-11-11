@@ -1,0 +1,37 @@
+# Copy to ~/.dbt/profiles.yml. All secrets come from the environment.
+uniti_selfcare:
+  target: dev
+  outputs:
+    dev:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: "{{ env_var('SNOWFLAKE_USER') }}"
+      authenticator: externalbrowser
+      role: UNITI_TRANSFORMER
+      warehouse: UNITI_TRANSFORMING_WH
+      database: UNITI_ANALYTICS
+      schema: "dbt_{{ env_var('USER', 'dev') | lower }}"
+      threads: 8
+    ci:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: SVC_UNITI_DBT
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: UNITI_TRANSFORMER
+      warehouse: UNITI_TRANSFORMING_WH
+      database: UNITI_ANALYTICS
+      schema: "ci_{{ env_var('CI_RUN_ID', 'local') }}"
+      threads: 8
+    prod:
+      type: snowflake
+      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
+      user: SVC_UNITI_DBT
+      private_key_path: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PATH') }}"
+      private_key_passphrase: "{{ env_var('SNOWFLAKE_PRIVATE_KEY_PASSPHRASE', '') }}"
+      role: UNITI_TRANSFORMER
+      warehouse: UNITI_TRANSFORMING_WH
+      database: UNITI_ANALYTICS
+      schema: public
+      threads: 16
+      query_tag: dbt_prod

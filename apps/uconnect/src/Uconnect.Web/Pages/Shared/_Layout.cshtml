@@ -1,0 +1,53 @@
+@using Uconnect.Application.Accounts
+@{
+    var accounts = ViewData["Accounts"] as IReadOnlyList<AccountSummaryDto> ?? Array.Empty<AccountSummaryDto>();
+    var current = ViewData["AccountNumber"] as string;
+    var section = ViewContext.RouteData.Values["page"] as string ?? "/Index";
+}
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@ViewData["Title"] · Uconnect</title>
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" asp-page="/Index">Uconnect</a>
+        @if (accounts.Count > 1)
+        {
+            <form method="post" asp-page="/SwitchAccount" class="switcher">
+                <label for="accountNumber" class="visually-hidden">Account</label>
+                <select id="accountNumber" name="accountNumber" onchange="this.form.submit()">
+                    @foreach (var account in accounts)
+                    {
+                        <option value="@account.AccountNumber" selected="@(account.AccountNumber == current)">@account.Name (@account.AccountNumber)</option>
+                    }
+                </select>
+                <noscript><button type="submit">Switch</button></noscript>
+            </form>
+        }
+        else if (current is not null)
+        {
+            <span class="switcher">@current</span>
+        }
+        <span class="user">@User.Identity?.Name</span>
+    </header>
+    <nav class="sidenav" aria-label="Main">
+        @foreach (var (page, label) in new[] { ("/Index", "Dashboard"), ("/Services/Index", "Services"), ("/Invoices/Index", "Bills & payments"), ("/Tickets/Index", "Support"), ("/Appointments/Index", "Engineer visits"), ("/Outages", "Service status") })
+        {
+            <a asp-page="@page" class="@(section.StartsWith(page.Replace("/Index", string.Empty), StringComparison.Ordinal) && (page != "/Index" || section == "/Index") ? "active" : null)">@label</a>
+        }
+    </nav>
+    <main class="content">
+        <h1>@ViewData["Title"]</h1>
+        <div asp-validation-summary="ModelOnly" class="alert alert--bad" role="alert"></div>
+        @if (TempData["Notice"] is string notice)
+        {
+            <div class="alert alert--ok" role="status">@notice</div>
+        }
+        @RenderBody()
+    </main>
+</body>
+</html>

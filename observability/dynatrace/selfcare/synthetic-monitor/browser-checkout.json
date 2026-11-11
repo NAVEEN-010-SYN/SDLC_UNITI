@@ -1,0 +1,79 @@
+{
+  "name": "{{ .monitorName }}",
+  "frequencyMin": {{ .frequencyMin }},
+  "enabled": true,
+  "type": "BROWSER",
+  "locations": [{{ range $i, $l := .locations }}{{ if $i }}, {{ end }}"{{ $l }}"{{ end }}],
+  "tags": [{ "key": "app", "value": "{{ .appTag }}" }, { "key": "journey", "value": "checkout" }],
+  "anomalyDetection": {
+    "outageHandling": {
+      "globalOutage": true,
+      "globalOutagePolicy": { "consecutiveRuns": 2 },
+      "localOutage": false
+    },
+    "loadingTimeThresholds": {
+      "enabled": true,
+      "thresholds": [{ "type": "TOTAL", "valueMs": 20000 }]
+    }
+  },
+  "script": {
+    "type": "clickpath",
+    "version": "1.0",
+    "configuration": {
+      "device": { "deviceName": "Desktop", "orientation": "landscape" },
+      "requestHeaders": { "headers": [{ "name": "X-Synthetic-Monitor", "value": "dynatrace" }] }
+    },
+    "events": [
+      {
+        "type": "navigate",
+        "description": "Open shop",
+        "url": "{{ .startUrl }}",
+        "wait": { "waitFor": "page_complete" }
+      },
+      {
+        "type": "keystrokes",
+        "description": "Enter service address",
+        "target": { "locators": [{ "type": "css", "value": "input[name='line1']" }] },
+        "textValue": "{{ .serviceabilityAddress }}",
+        "wait": { "waitFor": "time", "milliseconds": 200 }
+      },
+      {
+        "type": "keystrokes",
+        "description": "Enter ZIP",
+        "target": { "locators": [{ "type": "css", "value": "input[name='postalCode']" }] },
+        "textValue": "{{ .serviceabilityZip }}",
+        "wait": { "waitFor": "time", "milliseconds": 200 }
+      },
+      {
+        "type": "click",
+        "description": "Check availability",
+        "target": { "locators": [{ "type": "css", "value": "[data-testid='check-availability']" }] },
+        "button": 0,
+        "wait": { "waitFor": "element", "timeoutInMilliseconds": 15000,
+                  "target": { "locators": [{ "type": "css", "value": "[data-testid='plan-card']" }] } }
+      },
+      {
+        "type": "click",
+        "description": "Choose first plan",
+        "target": { "locators": [{ "type": "css", "value": "[data-testid='plan-card'] button" }] },
+        "button": 0,
+        "wait": { "waitFor": "element", "timeoutInMilliseconds": 10000,
+                  "target": { "locators": [{ "type": "css", "value": "[data-testid='cart-summary']" }] } }
+      },
+      {
+        "type": "click",
+        "description": "Proceed to checkout",
+        "target": { "locators": [{ "type": "css", "value": "[data-testid='go-to-checkout']" }] },
+        "button": 0,
+        "wait": { "waitFor": "element", "timeoutInMilliseconds": 15000,
+                  "target": { "locators": [{ "type": "css", "value": "iframe[title*='payment']" }] } }
+      },
+      {
+        "type": "javascript",
+        "description": "Assert totals rendered from integer minor units",
+        "javaScript": "var t = document.querySelector('[data-testid=\"due-today\"]'); if (!t || !/^\\$\\d{1,3}(,\\d{3})*\\.\\d{2}$/.test(t.textContent.trim())) { api.fail('Due-today total missing or malformed: ' + (t && t.textContent)); }",
+        "wait": { "waitFor": "time", "milliseconds": 0 }
+      }
+    ]
+  }
+}

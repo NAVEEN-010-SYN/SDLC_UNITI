@@ -1,0 +1,26 @@
+@page
+@model Uconnect.Web.Pages.Tickets.NewModel
+@{
+    ViewData["Title"] = "Report a problem";
+}
+<form method="post" class="form">
+    <label asp-for="Input.Category">What is it about?</label>
+    <select asp-for="Input.Category" asp-items="NewModel.Categories"></select>
+    <span asp-validation-for="Input.Category" class="bad"></span>
+
+    <label asp-for="Input.ServiceId">Which service?</label>
+    <select asp-for="Input.ServiceId" asp-items="Model.ServiceOptions"><option value="">Not about a specific service</option></select>
+    <span asp-validation-for="Input.ServiceId" class="bad"></span>
+
+    <label><input type="checkbox" asp-for="Input.ServiceDown" /> The service is not working at all</label>
+
+    <label asp-for="Input.Subject">Summary</label>
+    <input asp-for="Input.Subject" maxlength="150" />
+    <span asp-validation-for="Input.Subject" class="bad"></span>
+
+    <label asp-for="Input.Description">Tell us what's happening</label>
+    <textarea asp-for="Input.Description" rows="6" maxlength="4000"></textarea>
+    <span asp-validation-for="Input.Description" class="bad"></span>
+
+    <button type="submit" class="button">Send</button>
+</form>

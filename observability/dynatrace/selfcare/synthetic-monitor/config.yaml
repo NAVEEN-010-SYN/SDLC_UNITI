@@ -1,0 +1,58 @@
+# Browser clickpaths for the two journeys that matter most to revenue and
+# support load. Test accounts are flagged `synthetic` in each app so their
+# orders are auto-cancelled and excluded from the Snowflake marts.
+configs:
+  - id: syn-consumer-login
+    type:
+      api: synthetic-monitor
+    config:
+      name: GoKinetic consumer login
+      template: browser-login.json
+      parameters:
+        monitorName: GoKinetic consumer login
+        startUrl: https://www.gokinetic.com/account/login
+        landingText: My account
+        credentialId:
+          type: environment
+          name: DT_SYNTHETIC_CONSUMER_CREDENTIAL_ID
+        frequencyMin: 5
+        appTag: ecom-gokinetic
+        locations:
+          type: value
+          value: [GEOLOCATION-9999453BE4BDB3CD, GEOLOCATION-95196F3C9A4F4215]
+
+  - id: syn-business-login
+    type:
+      api: synthetic-monitor
+    config:
+      name: Business GoKinetic login
+      template: browser-login.json
+      parameters:
+        monitorName: Business GoKinetic login
+        startUrl: https://business.gokinetic.com/login
+        landingText: Dashboard
+        credentialId:
+          type: environment
+          name: DT_SYNTHETIC_BUSINESS_CREDENTIAL_ID
+        frequencyMin: 10
+        appTag: gokinetic-business
+        locations:
+          type: value
+          value: [GEOLOCATION-9999453BE4BDB3CD]
+
+  - id: syn-consumer-checkout
+    type:
+      api: synthetic-monitor
+    config:
+      name: GoKinetic checkout to payment step
+      template: browser-checkout.json
+      parameters:
+        monitorName: GoKinetic checkout to payment step
+        startUrl: https://www.gokinetic.com/shop
+        serviceabilityAddress: 1 Synthetic Test Way
+        serviceabilityZip: '36602'
+        frequencyMin: 15
+        appTag: ecom-gokinetic
+        locations:
+          type: value
+          value: [GEOLOCATION-9999453BE4BDB3CD, GEOLOCATION-95196F3C9A4F4215]

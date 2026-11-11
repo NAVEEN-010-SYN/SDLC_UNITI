@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <RootNamespace>IConnect.Wholesale.Api</RootNamespace>
+    <UserSecretsId>iconnect-wholesale-api</UserSecretsId>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\IConnect.Wholesale.Application\IConnect.Wholesale.Application.csproj" />
+    <ProjectReference Include="..\IConnect.Wholesale.Infrastructure\IConnect.Wholesale.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="8.0.11" />
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.HealthChecks.EntityFrameworkCore" Version="8.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.9.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="IConnect.Wholesale.Tests" />
+  </ItemGroup>
+</Project>
